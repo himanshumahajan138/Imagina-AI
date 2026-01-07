@@ -87,8 +87,8 @@ with st.sidebar:
             "Language",
             COMMON_LANGUAGES,
             index=(
-                COMMON_LANGUAGES.index("english")
-                if "english" in COMMON_LANGUAGES
+                list(COMMON_LANGUAGES.keys()).index("American English")
+                if "American English" in COMMON_LANGUAGES
                 else 0
             ),
             disabled=st.session_state.generating,
@@ -179,7 +179,7 @@ with st.sidebar:
                 st.selectbox(
                     "Speaker",
                     list(SPEAKER_OPTIONS.keys()),
-                    index=list(SPEAKER_OPTIONS.keys()).index("Wayne"),
+                    index=list(SPEAKER_OPTIONS.keys()).index("Heart"),
                     disabled=st.session_state.generating,
                     key="selected_speaker",
                 )
@@ -192,15 +192,6 @@ with st.sidebar:
                     disabled=st.session_state.generating,
                     key="selected_speed",
                 )
-                st.slider(
-                    "Pitch",
-                    -16,
-                    16,
-                    0,
-                    step=1,
-                    disabled=st.session_state.generating,
-                    key="selected_pitch",
-                )
                 st.file_uploader(
                     "Upload Custom BGM (.wav)",
                     type="wav",
@@ -209,10 +200,9 @@ with st.sidebar:
                 )
         else:
             st.session_state.selected_speaker = list(SPEAKER_OPTIONS.keys()).index(
-                "Wayne"
+                "Heart"
             )
             st.session_state.selected_speed = None
-            st.session_state.selected_pitch = None
 
         st.session_state.use_logo = st.toggle(
             "Add Custom Logo",
@@ -358,7 +348,6 @@ with tab1:
                     )
                 ).assign(
                     speed=st.session_state.selected_speed,
-                    pitch=st.session_state.selected_pitch,
                     speaker=st.session_state.selected_speaker,
                     custom_image=None,
                 )
@@ -374,7 +363,6 @@ with tab1:
                     parse_script_scene_content(st.session_state.uploaded_content)
                 ).assign(
                     speed=st.session_state.selected_speed,
-                    pitch=st.session_state.selected_pitch,
                     speaker=st.session_state.selected_speaker,
                     custom_image=None,
                 ),
@@ -393,7 +381,6 @@ with tab1:
                 "start_time",
                 "end_time",
                 "speed",
-                "pitch",
                 "speaker",
                 "custom_image",
             ]
@@ -422,14 +409,6 @@ with tab1:
                     min_value=0.0,
                     max_value=2.0,
                     step=0.1,
-                    required=True,
-                    disabled=False if st.session_state.use_custom_audio else True,
-                ),
-                "pitch": st.column_config.NumberColumn(
-                    "Pitch",
-                    min_value=-16,
-                    max_value=16,
-                    step=1,
                     required=True,
                     disabled=False if st.session_state.use_custom_audio else True,
                 ),

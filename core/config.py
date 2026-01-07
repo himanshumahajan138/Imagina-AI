@@ -1,16 +1,44 @@
-COMMON_LANGUAGES = [
-    "english",
-    "chinese",
-]
 SPEAKER_OPTIONS = {
-    "Emma": COMMON_LANGUAGES,
-    "Frank": COMMON_LANGUAGES,
-    "Carter": COMMON_LANGUAGES,
-    "Davis": COMMON_LANGUAGES,
-    "Mike": COMMON_LANGUAGES,
-    "Samuel": COMMON_LANGUAGES,
-    "Wayne": COMMON_LANGUAGES,
+    "Heart": "af_heart",
+    "Bella": "af_bella",
+    "Nicole": "af_nicole",
+    "Aoede": "af_aoede",
+    "Kore": "af_kore",
+    "Sarah": "af_sarah",
+    "Nova": "af_nova",
+    "Sky": "af_sky",
+    "Alloy": "af_alloy",
+    "Jessica": "af_jessica",
+    "River": "af_river",
+    "Michael": "am_michael",
+    "Fenrir": "am_fenrir",
+    "Puck": "am_puck",
+    "Echo": "am_echo",
+    "Eric": "am_eric",
+    "Liam": "am_liam",
+    "Onyx": "am_onyx",
+    "Santa": "am_santa",
+    "Adam": "am_adam",
+    "Emma": "bf_emma",
+    "Isabella": "bf_isabella",
+    "Alice": "bf_alice",
+    "Lily": "bf_lily",
+    "George": "bm_george",
+    "Fable": "bm_fable",
+    "Lewis": "bm_lewis",
+    "Daniel": "bm_daniel",
 }
+
+COMMON_LANGUAGES = {
+    "American English": "a",
+    "British English": "b",
+    "Spanish": "e",
+    "French": "f",
+    "Hindi": "h",
+    "Italian": "i",
+    "Portuguese": "p",
+}
+
 DIMENSIONS = {
     "Landscape - 1536x1024": "1536x1024",
     "Portrait - 1024x1536": "1024x1536",
@@ -20,7 +48,7 @@ DIMENSIONS = {
 MODEL_TYPES = {
     "SORA": "openai",
     "VEO": "gemini",
-    # "FASTWAN": "fastwan",
+    "FASTWAN": "fastwan",
 }
 
 

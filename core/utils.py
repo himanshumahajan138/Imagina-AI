@@ -9,12 +9,14 @@ import hashlib
 import requests
 import tempfile
 import subprocess
+import librosa
 import json_repair
 import numpy as np
 import pandas as pd
 from sync import Sync
 from PIL import Image
 import streamlit as st
+import soundfile as sf
 from io import BytesIO
 from google import genai
 from pathlib import Path
@@ -26,13 +28,12 @@ from dotenv import load_dotenv
 from core.logger_utils import logger
 from sync.core.api_error import ApiError
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
-from TTS.audio_generation_pipeline import VibeVoiceTTS
-# from core.fastwan_utils import fastwan_video_generation
+from core.kokoro_tts_utils import KokoroAudioPipeline
 from sync.common import Audio, GenerationOptions, Video
+# from core.fastwan_utils import fastwan_video_generation
 from core.static_file_serve_api import upload_file_to_static_server
 from core.trimmer_utils import get_file_duration, format_time, trim_media
-from core.config import ASPECT_RATIOS, FASTWAN_DIMENSIONS, SORA_DIMENSIONS
+from core.config import ASPECT_RATIOS, FASTWAN_DIMENSIONS, SORA_DIMENSIONS, SPEAKER_OPTIONS, COMMON_LANGUAGES
 
 # Load environment variables
 load_dotenv()
@@ -348,7 +349,7 @@ def validate_script_data(script_data: list[dict], global_duration: int) -> list[
     Checks:
     - start_time and end_time are in correct format
     - start_time < end_time
-    - speaker, speed, pitch, script, scene are valid
+    - speaker, speed, script, scene are valid
     - each row's end_time must exactly match the next row's start_time (no gaps)
     - overall end_time does not exceed global_duration (in seconds)
     """
@@ -726,90 +727,228 @@ def _generate_storyboard_images(
             logger.exception(f"Error generating image for scene {i+1}: {e}")
 
 
+def adjust_audio_duration(audio_path: str, target_duration: float, method: str = "smart"):
+    logger.info(f"[adjust] Starting duration adjustment | file={audio_path} | target={target_duration}s | method={method}")
+
+    audio = AudioSegment.from_wav(audio_path)
+    current_duration = len(audio) / 1000.0
+    duration_diff = target_duration - current_duration
+
+    logger.debug(f"[adjust] Current duration={current_duration:.3f}s | Diff={duration_diff:.3f}s")
+
+    if abs(duration_diff) < 0.1:
+        logger.info("[adjust] Duration within ±0.1s → Returning original file (no adjustment needed)")
+        return audio_path, audio, False, 1.0
+
+    output_path = Path(tempfile.gettempdir()) / f"adjusted_audio_{uuid.uuid4()}.wav"
+
+    # SMART STRATEGY
+    if method == "smart":
+        logger.info("[adjust] Using SMART method")
+
+        # 1. Add silence (best quality)
+        if 0 < duration_diff < 1.0:
+            logger.info(f"[adjust] Small positive diff ({duration_diff:.3f}s) → Adding silence")
+            silence = AudioSegment.silent(duration=int(duration_diff * 1000))
+            adjusted_audio = audio + silence
+            adjusted_audio.export(str(output_path), format="wav")
+            logger.info(f"[adjust] Silence added successfully → {output_path}")
+            return str(output_path), adjusted_audio, False, 1.0
+
+        # 2. Audio is too long → needs speed-up regen
+        elif duration_diff < -1.8:
+            suggested_speed = current_duration / target_duration
+            suggested_speed = max(0.85, min(1.25, suggested_speed))
+            logger.warning(
+                f"[adjust] Large negative diff ({duration_diff:.3f}s) → Needs regeneration with faster speed={suggested_speed:.3f}"
+            )
+            return audio_path, audio, True, suggested_speed
+
+        # 3. Audio too short → needs slow-down regen
+        elif duration_diff > 1.8:
+            suggested_speed = current_duration / target_duration
+            suggested_speed = max(0.75, min(1.15, suggested_speed))
+            logger.warning(
+                f"[adjust] Large positive diff ({duration_diff:.3f}s) → Needs regeneration with slower speed={suggested_speed:.3f}"
+            )
+            return audio_path, audio, True, suggested_speed
+
+        # 4. Medium diff → high-quality time stretch
+        else:
+            logger.info(
+                f"[adjust] Medium diff ({duration_diff:.3f}s) → Using high-quality time-stretching"
+            )
+            y, sr = librosa.load(audio_path, sr=None)
+            stretch_factor = current_duration / target_duration
+            stretch_factor = max(0.90, min(1.10, stretch_factor))
+
+            logger.debug(f"[adjust] Stretch factor={stretch_factor:.3f}")
+
+            y_stretched = librosa.effects.time_stretch(y, rate=stretch_factor, n_fft=4096)
+
+            from scipy.ndimage import gaussian_filter1d
+            y_stretched = gaussian_filter1d(y_stretched, sigma=0.5)
+
+            sf.write(str(output_path), y_stretched, sr)
+            logger.info(f"[adjust] Time-stretch completed → {output_path}")
+
+            adjusted_audio = AudioSegment.from_wav(str(output_path))
+            return str(output_path), adjusted_audio, False, 1.0
+
+    # METHOD: silence
+    elif method == "silence":
+        logger.info("[adjust] Using SILENCE method")
+        if duration_diff > 0:
+            logger.info(f"[adjust] Adding silence ({duration_diff:.3f}s)")
+            silence = AudioSegment.silent(duration=int(duration_diff * 1000))
+            adjusted_audio = audio + silence
+            adjusted_audio.export(str(output_path), format="wav")
+            logger.info(f"[adjust] Silence method completed → {output_path}")
+            return str(output_path), adjusted_audio, False, 1.0
+        else:
+            logger.warning("[adjust] Negative diff → falling back to stretch method")
+            return adjust_audio_duration(audio_path, target_duration, method="stretch")
+
+    # METHOD: stretch
+    elif method == "stretch":
+        logger.info("[adjust] Using STRETCH method")
+        y, sr = librosa.load(audio_path, sr=None)
+        stretch_factor = current_duration / target_duration
+        logger.debug(f"[adjust] Stretch factor={stretch_factor:.3f}")
+        y_stretched = librosa.effects.time_stretch(y, rate=stretch_factor)
+        sf.write(str(output_path), y_stretched, sr)
+        logger.info(f"[adjust] Stretch method completed → {output_path}")
+        adjusted_audio = AudioSegment.from_wav(str(output_path))
+        return str(output_path), adjusted_audio, False, 1.0
+
+    # METHOD: speed
+    elif method == "speed":
+        speed_factor = target_duration / current_duration
+        logger.info(f"[adjust] Using SPEED method | speed_factor={speed_factor:.3f}")
+        adjusted_audio = audio._spawn(
+            audio.raw_data,
+            overrides={"frame_rate": int(audio.frame_rate * (1 / speed_factor))}
+        ).set_frame_rate(audio.frame_rate)
+
+        adjusted_audio.export(str(output_path), format="wav")
+        logger.info(f"[adjust] Speed adjustment completed → {output_path}")
+        return str(output_path), adjusted_audio, False, 1.0
+
+
 def _generate_audio(script: List[Dict], custom_bgm=None):
+    logger.info("[audio-gen] Starting audio generation pipeline")
+
     try:
-        tts = VibeVoiceTTS(
-            model_path="microsoft/VibeVoice-Realtime-0.5B",
+        language = st.session_state.get("language")
+        logger.info(f"[audio-gen] Selected language={language}")
+
+        tts = KokoroAudioPipeline(lang_code=COMMON_LANGUAGES[language])
+
+        duration = (
+            8 if st.session_state.model_type == "gemini"
+            else 12 if st.session_state.model_type == "openai"
+            else 10
         )
 
-        # List to store all audio segments
+        logger.info(f"[audio-gen] Target duration per segment={duration}s")
+
         audio_segments = []
         temp_files = []
 
-        # 1. Generate all audio segments
-        for data in script:
-            temp_audio_path = (
-                Path(tempfile.gettempdir()) / f"generated_audio_{uuid.uuid4()}.wav"
-            )
-            tts.generate_speech(
-                text=data["script"],
-                speaker_name=data["speaker"],
-                output_path=str(temp_audio_path),
-                cfg_scale=1.5,
-            )
+        # GENERATE SEGMENTS
+        for index, data in enumerate(script):
+            logger.info(f"[audio-gen] --- Segment {index + 1}/{len(script)} ---")
+            current_speed = data.get("speed", 1.0)
+            max_retries = 2
 
-            # Load the generated audio segment
-            audio_segment = AudioSegment.from_wav(temp_audio_path)
-            audio_segments.append(audio_segment)
-            temp_files.append(temp_audio_path)
+            for attempt in range(max_retries):
+                logger.info(f"[audio-gen] Generating audio | attempt={attempt+1} | speed={current_speed:.3f}")
 
-        # 2. Merge all audio segments into one
+                temp_audio_path = Path(tempfile.gettempdir()) / f"generated_{uuid.uuid4()}.wav"
+
+                tts.text_to_audio(
+                    text=data["script"],
+                    voice=SPEAKER_OPTIONS[data["speaker"]],
+                    speed=current_speed,
+                    output_file=str(temp_audio_path),
+                )
+
+                logger.info("[audio-gen] Raw TTS audio generated")
+
+                # ADJUST DURATION
+                adjusted_path, adjusted_seg, needs_regen, suggested_speed = adjust_audio_duration(
+                    str(temp_audio_path),
+                    target_duration=duration,
+                    method="smart"
+                )
+
+                if needs_regen:
+                    logger.warning(
+                        f"[audio-gen] Duration way off → Regeneration needed | suggested_speed={suggested_speed:.3f}"
+                    )
+                    current_speed = suggested_speed
+                    temp_files.append(temp_audio_path)
+
+                    if attempt < max_retries - 1:
+                        continue  # retry
+                else:
+                    logger.info("[audio-gen] Duration OK → accepting segment")
+
+                audio_segments.append(adjusted_seg)
+                temp_files.append(temp_audio_path)
+
+                if adjusted_path != str(temp_audio_path):
+                    temp_files.append(adjusted_path)
+
+                break  # stop retry loop
+
+        # MERGE AUDIO
+        logger.info("[audio-gen] Merging all segments...")
         merged_audio = audio_segments[0]
         for segment in audio_segments[1:]:
-            merged_audio += segment  # Concatenate segments
+            merged_audio += segment
 
-        # Export merged audio to a temporary file
-        merged_audio_path = (
-            Path(tempfile.gettempdir()) / f"merged_audio_{uuid.uuid4()}.wav"
-        )
+        merged_audio_path = Path(tempfile.gettempdir()) / f"merged_{uuid.uuid4()}.wav"
         merged_audio.export(merged_audio_path, format="wav")
+        logger.info(f"[audio-gen] Merged audio ready → {merged_audio_path}")
 
-        # Clean up individual segment files
-        for temp_file in temp_files:
+        # CLEANUP
+        for f in temp_files:
             try:
-                temp_file.unlink()
+                Path(f).unlink()
             except:
-                pass
+                logger.debug(f"[cleanup] Failed to remove temp file: {f}")
 
-        # 3. Mix background music if provided
+        # ADD BGM
         if custom_bgm:
-            mixed_audio_path = (
-                Path(tempfile.gettempdir()) / f"mixed_audio_{uuid.uuid4()}.wav"
-            )
+            logger.info("[audio-gen] Mixing background music")
+            mixed_audio_path = Path(tempfile.gettempdir()) / f"mixed_{uuid.uuid4()}.wav"
 
-            # Handle file-like vs path
             if hasattr(custom_bgm, "read"):
-                bgm_path = (
-                    Path(tempfile.gettempdir())
-                    / f"{custom_bgm.name}_{uuid.uuid4()}.wav"
-                )
+                bgm_path = Path(tempfile.gettempdir()) / f"{custom_bgm.name}_{uuid.uuid4()}.wav"
                 with open(bgm_path, "wb") as f:
                     f.write(custom_bgm.read())
             else:
                 bgm_path = Path(custom_bgm)
 
-            bgm = AudioSegment.from_wav(bgm_path) - 30  # reduce volume
+            bgm = AudioSegment.from_wav(bgm_path) - 30
 
-            # Loop BGM until long enough
             if len(bgm) < len(merged_audio):
                 bgm *= (len(merged_audio) // len(bgm)) + 1
 
-            bgm = bgm[: len(merged_audio)]  # trim
+            bgm = bgm[: len(merged_audio)]
             final_audio = bgm.overlay(merged_audio)
             final_audio.export(mixed_audio_path, format="wav")
 
-            # Clean up merged audio file
-            try:
-                merged_audio_path.unlink()
-            except:
-                pass
+            logger.info(f"[audio-gen] Final mixed audio ready → {mixed_audio_path}")
 
             return {"path": str(mixed_audio_path)}
 
-        # 4. No BGM → return merged audio path
+        logger.info(f"[audio-gen] Final audio ready → {merged_audio_path}")
         return {"path": str(merged_audio_path)}
 
     except Exception as e:
+        logger.exception("[audio-gen] ERROR in audio generation pipeline")
         return {"error": str(e)}
 
 
@@ -820,6 +959,7 @@ def generate_audio_images(
     use_custom_audio: bool,
 ):
     st.session_state.video_data = {}
+
     # --- UI Placeholders ---
     progress_placeholder = st.empty()
     status_placeholder = st.empty()
@@ -829,16 +969,29 @@ def generate_audio_images(
     progress_bar = progress_placeholder.progress(0, text="🔄 Initializing...")
     status_box = status_placeholder.status("Processing...", expanded=True)
 
-    audio_future, temp_audio_path = None, ""
+    temp_audio_path = ""
+    
+    # --- Step 1: Generate Audio First (if needed) ---
     if use_custom_audio:
-        executor = ThreadPoolExecutor(max_workers=1)
-        audio_future = executor.submit(
-            _generate_audio, script, st.session_state.get("custom_bgm")
-        )
-        status_box.write("🎤 Audio generation started in background...")
+        progress_bar.progress(10, text="🎤 Generating Audio...")
+        status_box.write("🎤 Generating audio...")
+        
+        audio_result = _generate_audio(script, st.session_state.get("custom_bgm"))
+        
+        if "error" in audio_result:
+            err = f"❌ Audio generation failed: {audio_result['error']}"
+            st.error(err)
+            status_box.write(err)
+        else:
+            temp_audio_path = audio_result["path"]
+            progress_bar.progress(25, text="✅ Audio Generated")
+            status_box.write("✅ Audio Generated")
+            with audio_placeholder.expander("🎧 Preview Generated Audio"):
+                st.audio(temp_audio_path)
 
     # --- Step 2: Generate Images ---
-    progress_bar.progress(30, text="🖼️ Generating Scenes...")
+    start_progress = 30
+    progress_bar.progress(start_progress, text="🖼️ Generating Scenes...")
     total_scenes = len(script)
     image_step = 60 // max(1, total_scenes)  # 30–90%
 
@@ -861,9 +1014,9 @@ def generate_audio_images(
             )
 
             # update progress
-            pct = 30 + (i + 1) * image_step
+            pct = start_progress + (i + 1) * image_step
             status_box.write(f"✅ Scene {i+1} Generated")
-            progress_bar.progress(pct, text="Generating Next Scene...")
+            progress_bar.progress(pct, text=f"Generating Scene {i+2}..." if i < total_scenes - 1 else "Finalizing...")
 
             # scene preview
             with st.expander(f"🎬 Scene {i+1}"):
@@ -884,38 +1037,7 @@ def generate_audio_images(
                     caption=new_img["image_caption"],
                 )
 
-            # check audio periodically (don’t block images)
-            if (
-                use_custom_audio
-                and audio_future
-                and audio_future.done()
-                and not temp_audio_path
-            ):
-                audio_result = audio_future.result()
-                if "error" in audio_result:
-                    err = f"❌ Audio generation failed: {audio_result['error']}"
-                    st.error(err)
-                    status_box.write(err)
-                else:
-                    temp_audio_path = audio_result["path"]
-                    status_box.write("✅ Audio Generated")
-                    with audio_placeholder.expander("🎧 Preview Generated Audio"):
-                        st.audio(temp_audio_path)
-
-    # --- Step 3: Finalize audio if it wasn’t ready earlier ---
-    if use_custom_audio and audio_future and not temp_audio_path:
-        audio_result = audio_future.result()
-        if "error" in audio_result:
-            err = f"❌ Audio generation failed: {audio_result['error']}"
-            st.error(err)
-            status_box.write(err)
-        else:
-            temp_audio_path = audio_result["path"]
-            status_box.write("✅ Audio Generated")
-            with audio_placeholder.expander("🎧 Preview Generated Audio"):
-                st.audio(temp_audio_path)
-
-    # --- Step 4: Wrap up ---
+    # --- Step 3: Wrap up ---
     progress_bar.progress(100, text="✅ Audio and Images Generated Successfully.")
     status_box.update(label="✅ Complete", state="complete")
 

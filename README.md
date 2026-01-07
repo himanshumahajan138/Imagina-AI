@@ -1,50 +1,25 @@
-﻿# Imagina AI
+# Imagina AI
+
+Streamlit studio for generating cinematic videos from a theme or structured script. Supports OpenAI Sora, Gemini (VEO), and FastWan video generation, Kokoro TTS voiceovers, optional Sync lip-sync, and built-in tools for trimming, watermark removal, and YouTube downloads.
 
 ![Imagina AI logo (light)](images/logo-white.png)
 
-A full-stack Streamlit studio for generating cinematic videos from themes or structured scripts, with optional custom audio + lip-sync, FastWan/Sora/Gemini backends, watermark removal, media trimming, and YouTube downloading.
-
-## Table of Contents
-
-- Features
-- Architecture at a Glance
-- Requirements
-- Installation
-- Configuration (.env)
-- Running the App
-- Usage Guide
-- Voice & Model Notes
-- Troubleshooting
-- Project Layout
-- Open Source Guidelines & Contributing
-- Author
-- License
-
 ## Features
 
-- **Cinematic generator**: Create scripts from a theme or upload structured scripts; generate scene images/videos via OpenAI Sora, Gemini/VEO, or FastWan; merge scenes into a final render.
-- **Audio pipeline**: Built-in VibeVoice TTS voices, optional custom BGM, and optional Sync.so lip-sync for custom audio.
-- **Editing tools**: Merge videos, remove watermarks (OpenCV inpainting or FFmpeg delogo), trim media, and download from YouTube (audio/video/both) via `yt-dlp`.
-- **Output controls**: Aspect ratios, resolutions, watermark/logo toggles, reference images, per-scene regeneration, and custom speaker/pitch/speed.
-- **Local assets**: Logos in `images/`, sample script in `samples/sample.txt`, bundled streaming TTS voices in `TTS/voices/streaming_model`.
-
-## Architecture at a Glance
-
-- **UI**: `app.py` Streamlit app with tabs for generation, merging, watermark removal, trimming, and YouTube downloads.
-- **Generation logic**: `core/utils.py` handles script/image/video/audio generation, merging, and lip-sync integration.
-- **Models/config**: `core/config.py` defines model types, dimensions, and resolutions; `core/fastwan_utils.py` wraps FastWan.
-- **Media ops**: `core/trimmer_utils.py` for trim/preview; `core/yt_downloader_utils.py` for YouTube via `yt-dlp` + `ffmpeg`.
-- **Static server**: `core/static_file_serve_api.py` FastAPI server (optional ngrok) for hosting temp files used by lip-sync.
-- **TTS**: `TTS/audio_generation_pipeline.py` and `TTS/voices` for VibeVoice streaming voices.
+- Cinematic generator: create beats via GPT or upload SRT-style blocks, generate scene images and videos (Sora/Gemini/FastWan), then merge into a final render.
+- Audio + lip-sync: Kokoro TTS voices with selectable speakers, speed, and optional custom BGM; Sync-driven lip-sync for custom audio using a temporary static file server.
+- Media utilities: watermark remover (OpenCV inpainting or FFmpeg delogo), media trimmer, video merger, and YouTube downloader (audio/video/both) powered by ffmpeg and yt-dlp.
+- Output controls: choose aspect ratios/resolutions, toggle watermark/logo, provide reference images, regenerate scenes, and pick download quality.
+- Logging: rotating app logs in `logs/app.log`; temp assets are written to the system temp directory.
 
 ## Requirements
 
-- Python 3.10+ (Torch/diffusers friendly)
-- ffmpeg CLI on PATH
-- yt-dlp on PATH (for YouTube tab)
-- (GPU recommended) CUDA-capable torch build for heavy gen tasks
+- Python 3.10+
+- `ffmpeg` on PATH
+- `yt-dlp` on PATH (YouTube tab)
+- (Recommended) GPU for faster image/video generation; FastWan requires a capable GPU
 
-## Installation
+## Setup
 
 ```bash
 python -m venv .venv
@@ -54,91 +29,84 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-# Optional: pins in custom_req.txt if you need stricter/GPUs-specific versions
 ```
 
-## Configuration (.env)
+### Environment (.env)
 
 Create `.env` in the repo root:
 
 ```env
-OPENAI_API_KEY=sk-...           # Sora video + GPT prompts
+OPENAI_API_KEY=sk-...           # GPT prompts + Sora video generation
 GOOGLE_GENAI_API_KEY=...        # Gemini/VEO workflows
 SYNC_API_KEY=...                # Lip-sync via syncsdk
 
-BASE_URL=http://localhost:8000  # Static server base for temp uploads
-STATIC_SERVER_PORT=8000         # Port for static server
-USE_NGROK=true                  # Set false to skip ngrok
+BASE_URL=http://localhost:8000  # Base URL for the static file server
+STATIC_SERVER_PORT=8000         # Port for the static server
+USE_NGROK=true                  # Set false to skip ngrok tunneling
 NGROK_AUTH_TOKEN=...            # Optional, if using ngrok
-
-FASTWAN_RUNPOD_API_KEY=...      # Optional: if using FastWan via RunPod endpoints
-ENDPOINT_ID=...                 # Optional: FastWan endpoint id
-WATERMARK_PATH=images/watermark.png   # Override if using a custom watermark
 ```
 
-Place logos/watermarks in `images/` or point paths accordingly.
+Logos/watermarks live in `images/`; update paths there if you swap assets.
 
-## Running the App
+## Running
 
 ```bash
-# (optional) serve temp files for lip-sync/static access
+# optional: serve temp files for lip-sync/static access
 uvicorn core.static_file_serve_api:app --host 0.0.0.0 --port 8000
 
-# launch the Streamlit UI
+# Streamlit UI
 streamlit run app.py --server.address 0.0.0.0 --server.port 8004 --server.enableCORS false
 ```
 
-## Usage Guide
+## Usage
 
-- **Cinematic Generator**
-  1) Pick model type (SORA/OpenAI, VEO/Gemini, FastWan), language, dimensions, resolution, duration.
-  2) Generate a script from a theme or upload a script file (see "Script format" helper in UI).
-  3) Optionally upload reference images, choose speaker/voice, pitch/speed, and custom BGM; toggle watermark/logo.
-  4) Click "Generate Scenes (and Audio)" to create per-scene assets; review in the gallery and regenerate scenes as needed.
-  5) Click "Generate Final Video" to merge scenes; enable lip-sync if using custom audio.
-  6) Download the final render in the UI.
-- **Merge Videos**: Combine clips with ffmpeg concat.
-- **Watermark Remover**: Select region, choose OpenCV inpainting (quality) or FFmpeg delogo (speed), download cleaned video.
-- **Media Trimmer**: Select time range, preview, trim, and download.
-- **YouTube Downloader**: Fetch audio, video, hybrid, or both via `yt-dlp`.
+- Cinematic Generator  
+  1) Choose model (SORA/OpenAI, VEO/Gemini, or FastWan), language, duration, dimensions, and download resolution.  
+  2) Generate a script from a theme or paste/upload a custom SRT-style script (see format below).  
+  3) Optionally upload up to 3 reference images, enable custom audio with Kokoro speaker/speed/BGM, and toggle watermark/logo.  
+  4) Click **Generate Scenes (and Audio)** to build per-scene assets; review/regenerate in the gallery.  
+  5) Click **Generate Final Video** to merge scenes; enable lip-sync if using custom audio (requires the static server and reachable BASE_URL/ngrok URL).
+- Merge Videos: concatenate clips via ffmpeg.
+- Watermark Remover: select a region and choose OpenCV inpainting (higher quality) or FFmpeg delogo (faster).
+- Media Trimmer: pick a time window, preview, trim, and download.
+- YouTube Downloader: download audio, video-only, hybrid, or both via `yt-dlp`.
 
-## Voice & Model Notes
+### Custom Script Format (paste/upload)
 
-- Streaming voices bundled in `TTS/voices/streaming_model`; `TTS/download_experimental_voices.sh` can fetch extras.
-- FastWan sizes come from `core/config.py::FASTWAN_DIMENSIONS`; Sora size mappings in `SORA_DIMENSIONS`.
-- Lip-sync needs reachable URLs; run the static server and optionally ngrok (`USE_NGROK=true`).
+Each block uses SRT timestamps and tagged fields:
 
-## Troubleshooting
+```txt
+00:00:00,000 --> 00:00:05,000
+[script]: "Line of narration in your chosen language"
+[scene]: "English image description for this beat"
+[video_scene]: "English motion/camera direction for the video model"
+```
 
-- **ffmpeg/yt-dlp not found**: Install and ensure they are on PATH.
-- **GPU performance**: Use a CUDA torch build; large generations need GPU + VRAM.
-- **Lip-sync fails**: Check `BASE_URL`/ngrok reachability and `SYNC_API_KEY`.
-- **YouTube download errors**: Ensure `yt-dlp` (not just `youtube-dl`) is installed and updated.
-- **Disk space**: Temp files are written to your system temp dir; large runs can consume space.
+Blocks must be contiguous (end time of block N equals start time of block N+1), and total duration must not exceed the global duration you set.
 
 ## Project Layout
 
-- `app.py` - Streamlit UI and workflows.
-- `core/utils.py` - script/image/video/audio generation, merging, lip-sync wiring.
-- `core/config.py` - model/dimension/resolution options.
-- `core/fastwan_utils.py` - FastWan video generation helper.
-- `core/trimmer_utils.py` - trimming helpers and ffmpeg wrappers.
-- `core/yt_downloader_utils.py` - YouTube downloads via `yt-dlp` + `ffmpeg`.
-- `core/static_file_serve_api.py` - FastAPI static server with optional ngrok.
-- `TTS/` - VibeVoice TTS pipeline, voices, demos/configs.
-- `images/` - logos and watermark; `samples/` - script format example.
+- `app.py` - Streamlit UI and tab workflows.
+- `core/utils.py` - script parsing, GPT prompt flows, Kokoro TTS, scene image/video generation (Sora/Gemini), merging, watermark tools, and lip-sync wiring.
+- `core/config.py` - model options, dimensions, resolutions, speaker list, and language codes.
+- `core/yt_downloader_utils.py` - yt-dlp plus ffmpeg helpers.
+- `core/trimmer_utils.py` - trim and preview helpers.
+- `core/static_file_serve_api.py` - FastAPI static server with optional ngrok tunnel.
+- `core/kokoro_tts_utils.py` - Kokoro TTS pipeline wrapper.
+- `images/` - logos and default watermark.
+- `logs/` - rotating application logs.
 
-## Open Source Guidelines & Contributing
+## Troubleshooting
 
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, testing, and pull request expectations.
-- File issues for bugs/features with clear repro steps, logs, and environment info when possible.
+- `ffmpeg` or `yt-dlp` not found: install and ensure they are on PATH.
+- Lip-sync fails: confirm `BASE_URL` points to the static server or ngrok URL, and `SYNC_API_KEY` is set.
+- Generation stalls: check API keys, GPU availability, and console logs; long runs can take time.
+- YouTube downloads error: prefer `yt-dlp` (not `youtube-dl`) and update it regularly.
 
-## Author
+## Contributing
 
-- [Himanshu Mahajan](https://www.github.com/himanshumahajan138)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR expectations. Please include repro steps and logs when filing issues.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
-Made with ❤️ by [Himanshu Mahajan](https://www.github.com/himanshumahajan138)
+MIT - see [LICENSE](LICENSE).
