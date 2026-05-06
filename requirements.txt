@@ -1,0 +1,39 @@
+# ─── Core (always required) ────────────────────────────────────────
+streamlit
+st_theme
+pandas
+numpy
+python-dotenv
+pyyaml
+requests
+pillow
+ffmpeg-python
+opencv-python
+soundfile
+librosa
+scipy
+pydub
+json_repair
+
+# ─── Tier 3 (API) — install when using these providers ─────────────
+openai
+google-genai
+syncsdk
+
+# ─── Tier 2 (Cloud OSS) — Replicate-hosted backends ────────────────
+replicate
+
+# ─── Tier 1 (Local OSS) ────────────────────────────────────────────
+kokoro==0.9.4
+fastvideo
+
+# ─── YouTube downloader + static file server ───────────────────────
+yt-dlp
+fastapi
+uvicorn
+pyngrok
+
+# ─── Optional, install per-platform / per-modality ─────────────────
+# Apple Silicon LLM:        pip install mlx-lm
+# Wav2Lip (lipsync local):  pip install onnxruntime-coreml
+# ElevenLabs TTS (API):     pip install elevenlabs
