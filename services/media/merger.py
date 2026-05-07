@@ -1,4 +1,9 @@
-"""Video chunk + concat helpers (ffmpeg-based)."""
+"""Video chunk + concat helpers (ffmpeg-based).
+
+Headless: callable from both the Streamlit UI and the worker daemon.
+Errors are logged, not surfaced via st.* — UI-layer callers can wrap
+the return value if they want a banner.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import streamlit as st
-
+from core.logger import logger
 from services.media.trimmer import get_file_duration, trim_media
 
 
@@ -31,8 +35,7 @@ def split_media_into_chunks(file_path: str, max_duration: float = 299) -> list:
         file_ext = Path(file_path).suffix
         chunk_path = Path(tempfile.gettempdir()) / f"{file_stem}_chunk_{i}{file_ext}"
 
-        progress = st.empty()
-        if trim_media(file_path, start_time, end_time, str(chunk_path), progress):
+        if trim_media(file_path, start_time, end_time, str(chunk_path)):
             chunks.append((start_time, end_time, str(chunk_path)))
 
     return chunks
@@ -57,8 +60,8 @@ def merge_videos(video_chunks: list, output_path: str) -> bool:
         if result.returncode == 0:
             concat_file.unlink()
             return True
-        st.error(f"Merge error: {result.stderr}")
+        logger.error(f"Merge error: {result.stderr}")
         return False
     except Exception as e:
-        st.error(f"Error merging videos: {str(e)}")
+        logger.error(f"Error merging videos: {str(e)}")
         return False

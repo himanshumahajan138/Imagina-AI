@@ -9,7 +9,6 @@ from typing import Any
 from core.logger import logger
 from core.types import ScriptBlock
 
-
 _BLOCK_FIELDS = {"script", "scene", "video_scene", "start_time", "end_time"}
 
 
@@ -20,8 +19,7 @@ def row_to_block(row: dict[str, Any]) -> ScriptBlock:
     metadata (e.g. confidence scores from a future provider).
     """
     known = {k: row.get(k, "") for k in _BLOCK_FIELDS}
-    extra = {k: v for k, v in row.items() if k not in _BLOCK_FIELDS}
-    return ScriptBlock(**known, extra=extra)
+    return ScriptBlock(**known)
 
 
 def is_valid_srt_timestamp(ts: str) -> bool:
@@ -93,68 +91,62 @@ def validate_script_data(script_data: list[dict], global_duration: int) -> list[
 
 def parse_script_scene_content(text: str) -> list[dict]:
     """Parse a block-structured SRT-style script with [script]/[scene]/[video_scene] tags."""
-    # Streamlit import is lazy so non-UI callers (backends, tests) don't pull it in.
-    import streamlit as st
+    blocks = re.split(r"\n\s*\n", text.strip())
+    parsed: list[dict] = []
 
-    with st.spinner("Parsing and Loading Custom Script..."):
-        blocks = re.split(r"\n\s*\n", text.strip())
-        parsed: list[dict] = []
+    for i, block in enumerate(blocks):
+        lines = block.strip().splitlines()
+        if not lines:
+            continue
 
-        for i, block in enumerate(blocks):
-            lines = block.strip().splitlines()
-            if not lines:
-                continue
+        timestamp_line = lines[0].strip()
+        timestamp_match = re.match(
+            r"(?P<start>\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*"
+            r"(?P<end>\d{2}:\d{2}:\d{2},\d{3})",
+            timestamp_line,
+        )
+        if not timestamp_match:
+            logger.warning(f"Invalid or missing timestamp in block #{i+1}. Skipping.")
+            continue
 
-            timestamp_line = lines[0].strip()
-            timestamp_match = re.match(
-                r"(?P<start>\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*"
-                r"(?P<end>\d{2}:\d{2}:\d{2},\d{3})",
-                timestamp_line,
-            )
-            if not timestamp_match:
-                logger.warning(f"Invalid or missing timestamp in block #{i+1}. Skipping.")
-                continue
+        start_time = timestamp_match.group("start")
+        end_time = timestamp_match.group("end")
 
-            start_time = timestamp_match.group("start")
-            end_time = timestamp_match.group("end")
+        script = scene = video_scene = ""
 
-            script = scene = video_scene = ""
+        for line in lines[1:]:
+            line = line.strip()
+            if line.lower().startswith("[script]:"):
+                m = re.match(r'\[script\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
+                script = m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
+            elif line.lower().startswith("[scene]:"):
+                m = re.match(r'\[scene\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
+                scene = m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
+            elif line.lower().startswith("[video_scene]:"):
+                m = re.match(r'\[video_scene\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
+                video_scene = m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
 
-            for line in lines[1:]:
-                line = line.strip()
-                if line.lower().startswith("[script]:"):
-                    m = re.match(r'\[script\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
-                    script = m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
-                elif line.lower().startswith("[scene]:"):
-                    m = re.match(r'\[scene\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
-                    scene = m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
-                elif line.lower().startswith("[video_scene]:"):
-                    m = re.match(r'\[video_scene\]:\s*"(.*?)"\s*$', line, re.IGNORECASE)
-                    video_scene = (
-                        m.group(1).strip() if m else line.split(":", 1)[1].strip().strip('"')
-                    )
+        if not script:
+            logger.warning(f"Missing [script] in block #{i+1}. Skipping.")
+            continue
+        if not scene:
+            logger.warning(f"Missing [scene] in block #{i+1}. Skipping.")
+            continue
+        if not video_scene:
+            logger.info(f"No [video_scene] provided in block #{i+1}. Leaving blank.")
 
-            if not script:
-                logger.warning(f"Missing [script] in block #{i+1}. Skipping.")
-                continue
-            if not scene:
-                logger.warning(f"Missing [scene] in block #{i+1}. Skipping.")
-                continue
-            if not video_scene:
-                logger.info(f"No [video_scene] provided in block #{i+1}. Leaving blank.")
+        parsed.append(
+            {
+                "script": script,
+                "scene": scene,
+                "video_scene": video_scene,
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
 
-            parsed.append(
-                {
-                    "script": script,
-                    "scene": scene,
-                    "video_scene": video_scene,
-                    "start_time": start_time,
-                    "end_time": end_time,
-                }
-            )
-
-        logger.info(f"Parsed {len(parsed)} valid script-scene blocks.")
-        return parsed
+    logger.info(f"Parsed {len(parsed)} valid script-scene blocks.")
+    return parsed
 
 
 # Back-compat re-exports (used by core/utils.py during the transition)

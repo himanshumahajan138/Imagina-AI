@@ -21,11 +21,11 @@ llm:
       backend: replicate
       replicate_id: deepseek-ai/deepseek-v3
       requires_env: REPLICATE_API_TOKEN
-    gemini-2.5-pro:
+    gemini-3.1-flash:
       tier: api
       backend: gemini
       requires_env: GOOGLE_GENAI_API_KEY
-    gpt-4:
+    gpt-5.4-mini:
       tier: api
       backend: openai
       requires_env: OPENAI_API_KEY
@@ -33,10 +33,27 @@ llm:
 image:
   default_tier: auto
   models:
+    # Listed first → auto-pick prefers it within the local tier.
+    # Tongyi-MAI's 6B S3-DiT, 8-step distilled, bf16. Built specifically
+    # for 16 GB consumer devices and matches/beats SDXL-Turbo + FLUX
+    # schnell on the AI Arena leaderboard.
+    z-image-turbo:
+      tier: local
+      backend: zimage_local
+      hf_id: Tongyi-MAI/Z-Image-Turbo
+      ram_gb: 12
+      num_inference_steps: 9   # 9 results in 8 DiT forward passes
+      cpu_offload: false       # flip to true on tight memory; slower
+      supported_dimensions: ["1024x1024", "1024x1536", "1536x1024"]
     sdxl-turbo:
       tier: local
       backend: coreml_local
+      hf_id: stabilityai/sdxl-turbo
       ram_gb: 8
+      # SDXL-Turbo is officially square; non-square dimensions degrade
+      # quickly. Stick to 1024x1024 so the auto-pick + dimension
+      # intersection don't promise something that won't look good.
+      supported_dimensions: ["1024x1024"]
     flux-dev:
       tier: cloud_oss
       backend: replicate
@@ -57,25 +74,38 @@ video:
     ltx-video-2b:
       tier: local
       backend: ltx_local
+      hf_id: Lightricks/LTX-Video
       ram_gb: 12
+      scene_duration: 10
+      fps: 24
+      num_inference_steps: 30
+      # LTX-Video 2B targets 768×512 internally; we only expose the closest
+      # square preset to keep aspect-ratio handling sane downstream.
+      # The backend rounds to multiples of 32 internally.
+      supported_dimensions: ["1024x1024"]
     wan-2.1:
       tier: cloud_oss
       backend: replicate
       replicate_id: wavespeedai/wan-2.1-i2v-720p
       requires_env: REPLICATE_API_TOKEN
+      scene_duration: 10
     hunyuan-video:
       tier: cloud_oss
       backend: replicate
       replicate_id: tencent/hunyuan-video
       requires_env: REPLICATE_API_TOKEN
+      scene_duration: 10
     veo-3:
       tier: api
       backend: google_flow
       requires_env: GOOGLE_GENAI_API_KEY
+      scene_duration: 8
+      produces_audio: true
     sora:
       tier: api
       backend: openai
       requires_env: OPENAI_API_KEY
+      scene_duration: 12
 
 lipsync:
   default_tier: auto
@@ -84,6 +114,10 @@ lipsync:
       tier: local
       backend: wav2lip_local
       ram_gb: 1
+      ckpt_path: models/wav2lip.onnx
+      # Auto-pick will land here when no SYNC_API_KEY / REPLICATE_API_TOKEN
+      # is set. The backend gracefully raises BackendUnavailable if either
+      # onnxruntime is missing or the .onnx checkpoint isn't downloaded.
     latentsync:
       tier: cloud_oss
       backend: replicate

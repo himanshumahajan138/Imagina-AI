@@ -1,35 +1,44 @@
-import streamlit as st
-import os
-import tempfile
-import subprocess
+"""Headless ffmpeg/ffprobe helpers + Streamlit-only display widgets.
+
+The duration / codec / trim helpers above the divider are headless and
+safe to call server-side (worker uses them via lipsync chunking). The
+display_* helpers below are UI-only — they require a Streamlit script
+context and should only be invoked from `ui/tabs/*`.
+"""
+
 import json
+import os
+import subprocess
+import tempfile
 from datetime import timedelta
 
+import streamlit as st
 
-# Helper functions
+from core.logger import logger
+
+
+# ─── Headless helpers (server-safe) ─────────────────────────────────
+
+
 def get_file_duration(file_path: str) -> float:
-    """Get duration of audio or video file using ffprobe"""
+    """Get duration of audio or video file using ffprobe."""
     try:
         cmd = [
             "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1:nokey=1",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1:nokey=1",
             file_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        duration = float(result.stdout.strip())
-        return duration
+        return float(result.stdout.strip())
     except Exception as e:
-        st.error(f"Error reading file duration: {str(e)}")
+        logger.error(f"Error reading file duration: {e}")
         return 0
 
 
 def format_time(seconds: float) -> str:
-    """Convert seconds to HH:MM:SS format"""
+    """Convert seconds to HH:MM:SS format."""
     td = timedelta(seconds=seconds)
     hours, remainder = divmod(int(td.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -37,25 +46,21 @@ def format_time(seconds: float) -> str:
 
 
 def get_codec_info(file_path: str) -> list:
-    """Get codec information using ffprobe"""
+    """Get codec information using ffprobe."""
     try:
         cmd = [
             "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0,a:0",
-            "-show_entries",
-            "stream=codec_type,codec_name,codec_long_name",
-            "-of",
-            "json",
+            "-v", "error",
+            "-select_streams", "v:0,a:0",
+            "-show_entries", "stream=codec_type,codec_name,codec_long_name",
+            "-of", "json",
             file_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         data = json.loads(result.stdout)
         return data.get("streams", [])
     except Exception as e:
-        st.warning(f"Could not read codec info: {str(e)}")
+        logger.warning(f"Could not read codec info: {e}")
         return []
 
 
@@ -64,39 +69,37 @@ def trim_media(
     start_time: float,
     end_time: float,
     output_path: str,
-    progress_placeholder,
-):
-    """Trim video or audio file using ffmpeg"""
-    try:
+    progress_placeholder=None,
+) -> bool:
+    """Trim video or audio file using ffmpeg.
 
+    `progress_placeholder` is optional; if provided (Streamlit `st.empty()`
+    handle), receives a status `info` line. Server-side callers pass None.
+    """
+    try:
         cmd = [
             "ffmpeg",
-            "-i",
-            file_path,
-            "-ss",
-            format_time(start_time),
-            "-to",
-            format_time(end_time),
-            "-c",
-            "copy",  # Copy codecs without re-encoding for speed
-            "-y",  # Overwrite output file
+            "-i", file_path,
+            "-ss", format_time(start_time),
+            "-to", format_time(end_time),
+            "-c", "copy",
+            "-y",
             output_path,
         ]
 
-        progress_placeholder.info("🔄 Processing with FFmpeg...")
+        if progress_placeholder is not None:
+            progress_placeholder.info("🔄 Processing with FFmpeg...")
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-
         if result.returncode == 0:
             return True
-        else:
-            st.error(f"FFmpeg error: {result.stderr}")
-            return False
+        logger.error(f"FFmpeg error: {result.stderr}")
+        return False
     except subprocess.TimeoutExpired:
-        st.error("Processing timeout - file may be too large")
+        logger.error("Processing timeout — file may be too large")
         return False
     except Exception as e:
-        st.error(f"Error trimming file: {str(e)}")
+        logger.error(f"Error trimming file: {e}")
         return False
 
 

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import requests
-import streamlit as st
 from sync import Sync
 from sync.common import Audio, GenerationOptions, Video
 from sync.core.api_error import ApiError
@@ -116,7 +115,7 @@ def lipsync_generation_pipeline(video_path: str, audio_path: str):
     video_duration = get_file_duration(video_path)
     audio_duration = get_file_duration(audio_path)
 
-    st.info(
+    logger.info(
         f"Video duration: {format_time(video_duration)} | "
         f"Audio duration: {format_time(audio_duration)}"
     )
@@ -126,7 +125,7 @@ def lipsync_generation_pipeline(video_path: str, audio_path: str):
     if needs_split:
         video_chunks = split_media_into_chunks(video_path, 299)
         audio_chunks = split_media_into_chunks(audio_path, 299)
-        st.info(
+        logger.info(
             f"Split into {len(video_chunks)} video chunks and {len(audio_chunks)} audio chunks"
         )
 
@@ -166,11 +165,11 @@ def lipsync_generation_pipeline(video_path: str, audio_path: str):
 
     video_url = upload_file_to_static_server(video_path)
     if not video_url:
-        st.error("Failed to upload video to static server")
+        logger.error("Failed to upload video to static server")
         return None
     audio_url = upload_file_to_static_server(audio_path)
     if not audio_url:
-        st.error("Failed to upload audio to static server")
+        logger.error("Failed to upload audio to static server")
         return None
 
     return sync_so_lipsync_pipeline(

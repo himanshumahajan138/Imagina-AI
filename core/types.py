@@ -23,7 +23,6 @@ class ScriptBlock:
     video_scene: str
     start_time: str
     end_time: str
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

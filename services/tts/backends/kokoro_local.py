@@ -129,6 +129,10 @@ class KokoroLocalTTSBackend:
             cost_gb=self.ram_gb,
         )
 
+    def warmup(self, language: str = "a") -> None:
+        """Trigger weight load now (used by worker startup preload)."""
+        self._pipeline(language)
+
     def synthesize(
         self,
         text: str,

@@ -51,3 +51,41 @@ class VideoService:
         if "produces_audio" in self.cfg:
             return bool(self.cfg["produces_audio"])
         return bool(getattr(self._backend, "produces_audio", False))
+
+    @property
+    def scene_duration(self) -> int:
+        """Per-scene clip length, in seconds.
+
+        Different video backends emit different chunk sizes (Sora ≈ 12 s,
+        VEO 3 ≈ 8 s, OSS ≈ 10 s). Sourced from cfg, falls back to 10.
+        """
+        return int(self.cfg.get("scene_duration", 10))
+
+    @property
+    def max_total_duration(self) -> int:
+        """Cap on total compiled-video length for the slider UI."""
+        return int(self.cfg.get("max_total_duration", self.scene_duration * 15))
+
+    @property
+    def default_total_duration(self) -> int:
+        """Sensible starting value for the duration slider (= 2 scenes)."""
+        return int(self.cfg.get("default_total_duration", self.scene_duration * 2))
+
+
+def video_constraints() -> dict[str, int]:
+    """Best-effort {scene, min, max, default, step} for the sidebar slider.
+
+    Falls back to safe defaults when no video backend is configured (so
+    the UI still renders even with empty env vars).
+    """
+    try:
+        svc = VideoService()
+    except Exception:
+        return {"scene": 10, "min": 10, "max": 150, "default": 20, "step": 10}
+    return {
+        "scene": svc.scene_duration,
+        "min": svc.scene_duration,
+        "max": svc.max_total_duration,
+        "default": svc.default_total_duration,
+        "step": svc.scene_duration,
+    }

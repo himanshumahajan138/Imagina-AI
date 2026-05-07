@@ -6,11 +6,13 @@ UI and pipelines import THIS, never a specific backend.
 from __future__ import annotations
 
 import importlib
+import pandas as pd
 from typing import Any
+from dataclasses import asdict
+
 
 from core.protocols import LLMBackend
 from core.registry import pick_model, session_preferred
-from core.types import Script
 
 _BACKEND_MODULE = "services.llm.backends"
 
@@ -32,7 +34,10 @@ class LLMService:
         duration: int,
         language: str,
         **kwargs: Any,
-    ) -> Script:
-        return self._backend.generate_script(
+    ) -> pd.DataFrame:
+        
+        blocks = self._backend.generate_script(
             theme=theme, duration=duration, language=language, **kwargs
-        )
+        ).blocks
+        df = pd.json_normalize([asdict(b) for b in blocks])
+        return df

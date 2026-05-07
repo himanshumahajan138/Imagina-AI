@@ -11,11 +11,30 @@ import streamlit as st
 from core.config import (
     COMMON_LANGUAGES,
     DIMENSIONS,
-    MODEL_TYPES,
     RESOLUTIONS,
     SPEAKER_OPTIONS,
 )
+from core.registry import common_dimensions
+from services.video.service import video_constraints
 from ui.components import tier_picker
+
+
+def _filtered_dimensions() -> dict[str, str]:
+    """DIMENSIONS limited to what both image + video backends actually support.
+
+    Falls back to the full list (with a warning) when the chosen image and
+    video models declare disjoint supported_dimensions, so the user is
+    never stuck with an empty dropdown.
+    """
+    allowed = set(common_dimensions(["image", "video"]))
+    filtered = {label: val for label, val in DIMENSIONS.items() if val in allowed}
+    if not filtered:
+        st.warning(
+            "⚠️ Selected image and video models share no compatible dimensions; "
+            "showing all options. Generation may resize to fit."
+        )
+        return DIMENSIONS
+    return filtered
 
 
 def render(logo_path: str) -> None:
@@ -25,14 +44,20 @@ def render(logo_path: str) -> None:
 
         tier_picker.render()
 
+        # Mirror the chosen video model into legacy `model_type` so any
+        # callers still reading it (image refinement default, watermark
+        # framing helpers) keep working until they're fully migrated.
+        video_model = st.session_state.preferred_models.get("video")
+        if video_model == "veo-3":
+            st.session_state.model_type = "gemini"
+        elif video_model == "sora":
+            st.session_state.model_type = "openai"
+        else:
+            st.session_state.model_type = "local"
+
+        constraints = video_constraints()
+
         with st.expander("🎤 Voice & Video Settings", expanded=True):
-            model_label = st.selectbox(
-                "Model Type",
-                MODEL_TYPES.keys(),
-                index=0,
-                disabled=st.session_state.generating,
-            )
-            st.session_state.model_type = MODEL_TYPES[model_label]
             st.session_state.language = st.selectbox(
                 "Language",
                 COMMON_LANGUAGES,
@@ -43,9 +68,10 @@ def render(logo_path: str) -> None:
                 ),
                 disabled=st.session_state.generating,
             )
+            dimension_options = _filtered_dimensions()
             st.session_state.dimension = st.selectbox(
                 "Video Dimensions",
-                DIMENSIONS.keys(),
+                dimension_options.keys(),
                 disabled=st.session_state.generating,
             )
             st.session_state.download_quality = st.selectbox(
@@ -57,26 +83,10 @@ def render(logo_path: str) -> None:
 
             st.session_state.duration = st.slider(
                 "Duration (seconds)",
-                (
-                    8
-                    if st.session_state.model_type == "gemini"
-                    else 12 if st.session_state.model_type == "openai" else 10
-                ),
-                (
-                    120
-                    if st.session_state.model_type == "gemini"
-                    else 180 if st.session_state.model_type == "openai" else 150
-                ),
-                (
-                    16
-                    if st.session_state.model_type == "gemini"
-                    else 24 if st.session_state.model_type == "openai" else 20
-                ),
-                step=(
-                    8
-                    if st.session_state.model_type == "gemini"
-                    else 12 if st.session_state.model_type == "openai" else 10
-                ),
+                constraints["min"],
+                constraints["max"],
+                constraints["default"],
+                step=constraints["step"],
                 disabled=st.session_state.generating,
             )
             st.session_state.watermark = st.toggle(

@@ -8,13 +8,14 @@ import pandas as pd
 import streamlit as st
 
 from core.config import DIMENSIONS, RESOLUTIONS, SPEAKER_OPTIONS
+from core.registry import session_preferred
+from core.worker_client import worker
 from pipelines.cinematic import (
     final_generation,
     generate_audio_images,
     generate_video,
     hash_df,
 )
-from services.llm.backends.openai import openai_script_generator
 from services.llm.parser import parse_script_scene_content, validate_script_data
 from ui.components.storyboard_gallery import storyboard_gallery, video_gallery
 
@@ -41,28 +42,29 @@ def render() -> None:
     if st.session_state.load_script_button and st.session_state.script_file:
         st.session_state.generating = True
         st.session_state.action = "load_script"
-        st.session_state.uploaded_content = st.session_state.script_file.read().decode("utf-8")
+        st.session_state.uploaded_content = st.session_state.script_file.read().decode(
+            "utf-8"
+        )
         st.rerun()
 
-    _task_handler(
-        "generate_script",
-        lambda: st.session_state.update(
-            {
-                "script_df": pd.DataFrame(
-                    openai_script_generator(
-                        st.session_state.theme,
-                        st.session_state.language,
-                        st.session_state.duration,
-                        model_type=st.session_state.model_type,
-                    )
-                ).assign(
-                    speed=st.session_state.selected_speed,
-                    speaker=st.session_state.selected_speaker,
-                    custom_image=None,
-                )
-            }
-        ),
-    )
+    def _generate_script_task() -> None:
+        df = worker.generate_script(
+            theme=st.session_state.theme,
+            duration=st.session_state.duration,
+            language=st.session_state.language,
+            model_id=session_preferred("llm"),
+            model_type=st.session_state.model_type,
+        ).assign(
+            speed=st.session_state.selected_speed,
+            speaker=st.session_state.selected_speaker,
+            custom_image=None,
+        )
+        st.session_state.script_df = df
+        # Phase boundary: free MLX LLM (~6 GB) before the user kicks off
+        # the audio + image phase. Best-effort, never raises.
+        worker.evict_models(modality="llm")
+
+    _task_handler("generate_script", _generate_script_task)
 
     _task_handler(
         "load_script",
@@ -83,9 +85,14 @@ def render() -> None:
     if "script_df" not in st.session_state:
         st.session_state.script_df = pd.DataFrame(
             columns=[
-                "script", "scene", "video_scene",
-                "start_time", "end_time",
-                "speed", "speaker", "custom_image",
+                "script",
+                "scene",
+                "video_scene",
+                "start_time",
+                "end_time",
+                "speed",
+                "speaker",
+                "custom_image",
             ]
         )
 
@@ -108,7 +115,10 @@ def render() -> None:
                 ),
                 "speed": st.column_config.NumberColumn(
                     "Speed",
-                    min_value=0.0, max_value=2.0, step=0.1, required=True,
+                    min_value=0.0,
+                    max_value=2.0,
+                    step=0.1,
+                    required=True,
                     disabled=False if st.session_state.use_custom_audio else True,
                 ),
                 "start_time": st.column_config.TextColumn("Start Time", required=True),
@@ -136,7 +146,9 @@ def render() -> None:
                     )
                     if st.session_state.custom_image_upload:
                         with st.expander("Preview Uploaded Image"):
-                            st.image(st.session_state.custom_image_upload, width="stretch")
+                            st.image(
+                                st.session_state.custom_image_upload, width="stretch"
+                            )
                         if st.button(
                             f"Update Scene {st.session_state.scene_idx} with This Image",
                             width="stretch",
@@ -170,7 +182,9 @@ def render() -> None:
     if not st.session_state.get("image_updated", False):
         current_hash = hash_df(st.session_state.edited_df.reset_index(drop=True))
         if st.session_state.get("last_df_hash") != current_hash:
-            st.session_state.script_df = st.session_state.edited_df.reset_index(drop=True)
+            st.session_state.script_df = st.session_state.edited_df.reset_index(
+                drop=True
+            )
             st.session_state.last_df_hash = current_hash
             st.rerun()
 
@@ -205,7 +219,9 @@ def render() -> None:
 
     _task_handler("generate_audio_image", generate_audio_image_task)
 
-    if "video_data" in st.session_state and not st.session_state.get("video_generated", False):
+    if "video_data" in st.session_state and not st.session_state.get(
+        "video_generated", False
+    ):
         script_data = st.session_state.edited_df.to_dict(orient="records")
         errors = validate_script_data(script_data, st.session_state.duration)
         if errors:
@@ -245,8 +261,12 @@ def render() -> None:
         ),
     )
 
-    if st.session_state.get("scene_video_data") and st.session_state.get("scene_videos"):
-        video_gallery(DIMENSIONS[st.session_state.dimension], st.session_state.model_type)
+    if st.session_state.get("scene_video_data") and st.session_state.get(
+        "scene_videos"
+    ):
+        video_gallery(
+            DIMENSIONS[st.session_state.dimension], st.session_state.model_type
+        )
         if st.button(
             "📦 Final Merge",
             type="primary",
@@ -266,7 +286,9 @@ def render() -> None:
             ),
         )
 
-    if st.session_state.get("video_generated") and st.session_state.get("final_output_path"):
+    if st.session_state.get("video_generated") and st.session_state.get(
+        "final_output_path"
+    ):
         with st.expander("📽️ FINAL VIDEO"):
             st.video(st.session_state.final_output_path)
             with open(st.session_state.final_output_path, "rb") as f:

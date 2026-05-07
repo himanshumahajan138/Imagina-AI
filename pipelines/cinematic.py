@@ -2,11 +2,13 @@
 
 Orchestrates: script → image → video → tts → (lipsync) → merge.
 
-Functions here are heavily Streamlit-coupled because they update progress
-placeholders and session state as they run. Phase 4+ will rewrite the core
-generation steps to be pure (returning data) and move all UI into the tab/
-component modules. For now they are moved as-is so call sites can import
-them from a stable home.
+All backend work goes through the service facades in `services/<modality>/`
+so the tier-picker (sidebar → `st.session_state.preferred_models`) is the
+single source of model selection.
+
+These functions are still Streamlit-coupled because they update progress
+placeholders and session state as they run. A later phase will split the
+pure-data parts out so they can be reused outside Streamlit.
 """
 
 from __future__ import annotations
@@ -24,39 +26,18 @@ import librosa
 import pandas as pd
 import soundfile as sf
 import streamlit as st
-from google.genai import types as genai_types
-from PIL import Image
 from pydub import AudioSegment
 
-from core.config import (
-    COMMON_LANGUAGES,
-    SPEAKER_OPTIONS,
-)
-from core.errors import GenerationFailed
+from core.config import COMMON_LANGUAGES, SPEAKER_OPTIONS
+from core.errors import GenerationFailed, ImaginaError
 from core.logger import logger
 from core.registry import session_preferred
-from services.image.backends.gemini import gemini_image_generator
-from services.image.backends.openai import openai_image_generator
-from services.lipsync.backends.sync_api import lipsync_generation_pipeline
-from services.media.watermark import (
-    WATERMARK,
-    logo_addition,
-    watermark_addition,
-)
-from services.tts.backends.kokoro_local import KokoroAudioPipeline
-from services.video.service import VideoService
+from core.worker_client import worker
+from services.media.watermark import WATERMARK, logo_addition, watermark_addition
+from services.video.service import VideoService  # introspection only (cfg/duration)
 
 
-# Maps the user-facing "Model Type" sidebar choice to a canonical model_id
-# that lives in configs/models.yaml. Keep this list short — it's the bridge
-# between legacy UI labels and the new registry.
-_MODEL_TYPE_TO_VIDEO_ID = {
-    "openai": "sora",
-    "gemini": "veo-3",
-}
-
-
-# ─── Small helpers used by app/ui ───────────────────────────────────
+# ─── Helpers ────────────────────────────────────────────────────────
 
 
 def hash_df(df: pd.DataFrame) -> str:
@@ -71,20 +52,74 @@ def save_uploaded_file(uploaded_file) -> str:
     return str(temp_path)
 
 
+def _materialize_reference_images(refs) -> list[str]:
+    """Coerce a heterogeneous reference-image list to absolute disk paths.
+
+    The worker reads files by path off the shared filesystem, so any
+    Streamlit `UploadedFile` (in-memory bytes) needs to be persisted first.
+    Already-on-disk paths or `Path` objects pass through unchanged.
+    """
+    out: list[str] = []
+    for r in refs:
+        if isinstance(r, (str, Path)):
+            out.append(str(r))
+        elif hasattr(r, "read"):
+            tmp = Path(tempfile.gettempdir()) / f"refimg_{uuid.uuid4()}.png"
+            with open(tmp, "wb") as f:
+                f.write(r.read())
+            if hasattr(r, "seek"):
+                r.seek(0)
+            out.append(str(tmp))
+    return out
+
+
+def _video_service() -> VideoService:
+    """Build a fresh VideoService for the active session preferences.
+
+    Cheap: just imports the chosen backend module — heavy weights load
+    lazily via `core.model_manager` only on the first generation call.
+    """
+    return VideoService()
+
+
+def video_produces_audio(_model_type: str | None = None) -> bool:
+    """Return True if the active video backend natively produces audio."""
+    try:
+        return _video_service().produces_audio
+    except ImaginaError:
+        return False
+
+
+def _scene_duration() -> int:
+    """Per-scene clip length the active video backend emits, in seconds."""
+    try:
+        return _video_service().scene_duration
+    except ImaginaError:
+        return 10
+
+
 # ─── Image generation orchestration ─────────────────────────────────
 
 
 def _generate_storyboard_images(
     scene_script_pairs: List[Dict[str, str | list]],
     dimension: str,
-    model: str,
+    model_type: str | None = None,  # kept for signature compat with callers
 ):
     temp_dir = tempfile.mkdtemp(prefix="scene_images_")
     logger.info(f"Temporary image directory created: {temp_dir}")
-    previous_response_id = None
+
+    refinement_mode = bool(st.session_state.get("image_refinement_mode"))
+    previous_response_id: str | None = None
+
+    # Reference images may be UploadedFile objects (in-memory bytes) — persist
+    # them to disk so the worker can read them by path.
+    reference_image_paths = _materialize_reference_images(
+        st.session_state.get("custom_reference_images") or []
+    )
 
     for i, item in enumerate(scene_script_pairs):
-        if item["custom_image"]:
+        if item.get("custom_image"):
             image_data = item["custom_image"]
             filename = f"{uuid.uuid4()}.png"
             full_path = os.path.join(temp_dir, filename)
@@ -100,35 +135,71 @@ def _generate_storyboard_images(
                 "image_caption": "Custom Image",
             }
             continue
-        try:
-            filename = f"{uuid.uuid4()}.png"
-            full_path = os.path.join(temp_dir, filename)
-            if st.session_state.image_refinement_mode:
-                full_path, response_id = openai_image_generator(
-                    item=item,
-                    dimension=dimension,
-                    out_path=full_path,
-                    previous_response_id=previous_response_id,
-                )
-                previous_response_id = response_id
-            else:
-                full_path = gemini_image_generator(item, dimension, full_path)
 
-            if full_path:
-                yield {
-                    "scene_index": i,
-                    "scene": item["scene"],
-                    "script": item["script"],
-                    "video_scene": item["video_scene"],
-                    "image_path": full_path,
-                    "custom_image_path": None,
-                    "image_caption": "Generated Image",
-                }
+        try:
+            full_path = Path(temp_dir) / f"{uuid.uuid4()}.png"
+            per_scene_refs = _materialize_reference_images(item.get("reference_images") or [])
+            kwargs = {
+                "script": item["script"],
+                "video_scene": item["video_scene"],
+                "reference_text": item.get("reference_text"),
+                "old_image": item.get("old_image"),
+            }
+            if refinement_mode:
+                # response_id chaining is OpenAI-specific — other backends
+                # silently ignore the kwarg, so this is safe to always pass.
+                kwargs["previous_response_id"] = previous_response_id
+
+            asset = worker.generate_image(
+                prompt=item["scene"],
+                out_path=full_path,
+                dimension=dimension,
+                reference_images=per_scene_refs or reference_image_paths,
+                model_id=session_preferred("image"),
+                **kwargs,
+            )
+
+            if refinement_mode and asset.meta.get("response_id"):
+                previous_response_id = asset.meta["response_id"]
+
+            yield {
+                "scene_index": i,
+                "scene": item["scene"],
+                "script": item["script"],
+                "video_scene": item["video_scene"],
+                "image_path": str(asset.path),
+                "custom_image_path": None,
+                "image_caption": "Generated Image",
+            }
         except Exception as e:
             logger.exception(f"Error generating image for scene {i+1}: {e}")
 
 
 # ─── Audio: TTS + duration adjustment + BGM mixing ──────────────────
+
+
+# Approx narration rate at TTS speed=1.0. English cinematic narration runs
+# slightly slower than conversational speech (~150 WPM ≈ 2.5 wps); 2.4 wps
+# is a safe centre that lands within the safe ±15% speed band most of the
+# time, so the post-TTS fit pass barely has to do any work.
+_WORDS_PER_SECOND_AT_NORMAL = 2.4
+_TTS_SPEED_MIN = 0.7
+_TTS_SPEED_MAX = 1.4
+
+
+def _estimate_tts_speed(text: str, target_seconds: float) -> float:
+    """Pre-compute a TTS speed multiplier so the synthesized audio lands
+    close to `target_seconds` on the first call.
+
+    Returns a multiplier clamped to a perceptually safe band. The post-TTS
+    `fit` pass cleans up whatever residual gap remains.
+    """
+    words = len(text.split())
+    if words == 0 or target_seconds <= 0:
+        return 1.0
+    natural_seconds = words / _WORDS_PER_SECOND_AT_NORMAL
+    speed = natural_seconds / target_seconds
+    return max(_TTS_SPEED_MIN, min(_TTS_SPEED_MAX, speed))
 
 
 def adjust_audio_duration(audio_path: str, target_duration: float, method: str = "smart"):
@@ -140,7 +211,10 @@ def adjust_audio_duration(audio_path: str, target_duration: float, method: str =
     current_duration = len(audio) / 1000.0
     duration_diff = target_duration - current_duration
 
-    if abs(duration_diff) < 0.1:
+    # Smart/silence/stretch/speed modes accept ±100ms as "close enough" for
+    # natural-sounding output. `fit` mode insists on exact alignment so we
+    # skip this early return there.
+    if abs(duration_diff) < 0.1 and method != "fit":
         return audio_path, audio, False, 1.0
 
     output_path = Path(tempfile.gettempdir()) / f"adjusted_audio_{uuid.uuid4()}.wav"
@@ -200,6 +274,34 @@ def adjust_audio_duration(audio_path: str, target_duration: float, method: str =
         adjusted_audio.export(str(output_path), format="wav")
         return str(output_path), adjusted_audio, False, 1.0
 
+    if method == "fit":
+        # Simple rule: short → pad with silence at the end. Long → speed
+        # up via pydub.speedup (phase-vocoder, preserves pitch). Always
+        # lands EXACTLY on target_duration.
+        target_ms = int(target_duration * 1000)
+        current_ms = len(audio)
+        diff_ms = target_ms - current_ms
+
+        if diff_ms == 0:
+            return audio_path, audio, False, 1.0
+
+        if diff_ms > 0:
+            # SHORT → silence-pad at the end.
+            audio = audio + AudioSegment.silent(duration=diff_ms)
+        else:
+            # LONG → speed up. pydub.speedup uses overlap-add, so the
+            # output length isn't always exact — top up or trim to the
+            # nearest millisecond afterwards so we still land on target.
+            speed_factor = current_duration / target_duration
+            audio = audio.speedup(playback_speed=speed_factor)
+            if len(audio) < target_ms:
+                audio = audio + AudioSegment.silent(duration=target_ms - len(audio))
+            elif len(audio) > target_ms:
+                audio = audio[:target_ms]
+
+        audio.export(str(output_path), format="wav")
+        return str(output_path), audio, False, 1.0
+
     return audio_path, audio, False, 1.0
 
 
@@ -207,47 +309,50 @@ def _generate_audio(script: List[Dict], custom_bgm=None):
     logger.info("[audio-gen] Starting audio generation pipeline")
     try:
         language = st.session_state.get("language")
-        tts = KokoroAudioPipeline(lang_code=COMMON_LANGUAGES[language])
-
-        duration = (
-            8
-            if st.session_state.model_type == "gemini"
-            else 12 if st.session_state.model_type == "openai" else 10
-        )
+        lang_code = COMMON_LANGUAGES[language]
+        duration = _scene_duration()
+        tts_model_id = session_preferred("tts")
 
         audio_segments = []
         temp_files: list = []
 
         for index, data in enumerate(script):
-            current_speed = data.get("speed", 1.0)
-            max_retries = 2
+            # User-supplied speed (from data_editor) overrides auto. A 1.0
+            # value or missing one means "let the estimator pick" — that's
+            # the common case and produces close-to-target audio in one TTS
+            # round trip.
+            user_speed = data.get("speed")
+            if user_speed and float(user_speed) != 1.0:
+                tts_speed = float(user_speed)
+            else:
+                tts_speed = _estimate_tts_speed(data["script"], duration)
 
-            for attempt in range(max_retries):
-                temp_audio_path = Path(tempfile.gettempdir()) / f"generated_{uuid.uuid4()}.wav"
-                tts.text_to_audio(
-                    text=data["script"],
-                    voice=SPEAKER_OPTIONS[data["speaker"]],
-                    speed=current_speed,
-                    output_file=str(temp_audio_path),
-                )
+            temp_audio_path = Path(tempfile.gettempdir()) / f"generated_{uuid.uuid4()}.wav"
+            worker.synthesize(
+                text=data["script"],
+                out_path=temp_audio_path,
+                voice=SPEAKER_OPTIONS[data["speaker"]],
+                speed=tts_speed,
+                language=lang_code,
+                model_id=tts_model_id,
+            )
+            temp_files.append(temp_audio_path)
 
-                adjusted_path, adjusted_seg, needs_regen, suggested_speed = adjust_audio_duration(
-                    str(temp_audio_path),
-                    target_duration=duration,
-                    method="smart",
-                )
+            # Single fit pass: short → silence pad, long → speed up.
+            fit_path, fit_seg, _, _ = adjust_audio_duration(
+                str(temp_audio_path),
+                target_duration=duration,
+                method="fit",
+            )
+            audio_segments.append(fit_seg)
+            if fit_path != str(temp_audio_path):
+                temp_files.append(fit_path)
 
-                if needs_regen:
-                    current_speed = suggested_speed
-                    temp_files.append(temp_audio_path)
-                    if attempt < max_retries - 1:
-                        continue
-
-                audio_segments.append(adjusted_seg)
-                temp_files.append(temp_audio_path)
-                if adjusted_path != str(temp_audio_path):
-                    temp_files.append(adjusted_path)
-                break
+            actual_s = len(fit_seg) / 1000.0
+            logger.info(
+                f"[audio-gen] scene {index + 1}: tts_speed={tts_speed:.2f} "
+                f"target={duration}s actual={actual_s:.3f}s"
+            )
 
         merged_audio = audio_segments[0]
         for segment in audio_segments[1:]:
@@ -377,32 +482,14 @@ def generate_audio_images(
     audio_placeholder.empty()
     scene_placeholder.empty()
 
+    # Phase boundary: image (and TTS) generation is done. Free SDXL +
+    # Kokoro on the worker so the upcoming video-gen phase has headroom.
+    # Best-effort — never blocks the pipeline if the worker rejects the hint.
+    worker.evict_models(modality="image")
+    worker.evict_models(modality="tts")
+
 
 # ─── Per-scene video generation ─────────────────────────────────────
-
-
-def _resolve_video_model_id(model_type: str) -> str | None:
-    """Resolve which video model to use.
-
-    Priority:
-      1. The user's tier-picker override (sidebar → session_state).
-      2. Legacy 'Model Type' sidebar value mapped via _MODEL_TYPE_TO_VIDEO_ID.
-    """
-    override = session_preferred("video")
-    if override:
-        return override
-    return _MODEL_TYPE_TO_VIDEO_ID.get(model_type)
-
-
-def video_produces_audio(model_type: str) -> bool:
-    """Return True if the selected video backend natively produces audio."""
-    model_id = _resolve_video_model_id(model_type)
-    if not model_id:
-        return False
-    try:
-        return VideoService(model_id=model_id).produces_audio
-    except Exception:
-        return False
 
 
 def _generate_single_video(scene, ref_images, model_type, dimension):
@@ -417,18 +504,14 @@ def _generate_single_video(scene, ref_images, model_type, dimension):
         f"Video Scene: {scene['video_scene_text']}"
     )
 
-    model_id = _resolve_video_model_id(model_type)
-    if not model_id:
-        logger.warning(f"No video model_id mapped for model_type={model_type!r}")
-        return ""
-
     try:
-        VideoService(model_id=model_id).generate_video(
+        worker.generate_video(
             prompt=prompt,
             out_path=temp_file,
             dimension=dimension,
-            duration=float(scene.get("duration") or 0),
+            duration=float(scene.get("duration") or _scene_duration()),
             seed_image=Path(scene["image_path"]) if scene.get("image_path") else None,
+            model_id=session_preferred("video"),
         )
     except GenerationFailed as e:
         logger.error(f"Video generation failed: {e}")
@@ -464,6 +547,7 @@ def generate_video(video_data, global_duration, global_dimension, model_type):
     progress_bar = progress_placeholder.progress(0, text="📑 Preparing scenes metadata...")
     status_box = status_placeholder.status("Processing...", expanded=True)
 
+    scene_dur = _scene_duration()
     scenes = []
     ref_images = ""
     for i, img in enumerate(video_data["images"]):
@@ -474,11 +558,7 @@ def generate_video(video_data, global_duration, global_dimension, model_type):
                 "scene_text": img["scene"],
                 "video_scene_text": img["video_scene"],
                 "image_path": img.get("custom_image") or img["image_path"],
-                "duration": (
-                    8
-                    if st.session_state.model_type == "gemini"
-                    else 12 if st.session_state.model_type == "openai" else 10
-                ),
+                "duration": scene_dur,
             }
         )
         ref_images += (
@@ -523,8 +603,33 @@ def generate_video(video_data, global_duration, global_dimension, model_type):
     status_placeholder.empty()
     video_placeholder.empty()
 
+    # Phase boundary: video generation is done. Free any cached video
+    # weights before the lipsync/merge phase. (No local video backend
+    # is implemented today, so this is a no-op in practice — keeping the
+    # call for symmetry once one lands.)
+    worker.evict_models(modality="video")
+    return True
+
 
 # ─── Final merge ────────────────────────────────────────────────────
+
+
+def _run_lipsync(merged_video: Path, audio_path: str) -> str | None:
+    """Run the active lipsync backend; return the output path or None."""
+    out_path = Path(tempfile.gettempdir()) / f"lipsync_{uuid.uuid4()}.mp4"
+    try:
+        asset = worker.apply_lipsync(
+            video_path=merged_video,
+            audio_path=Path(audio_path),
+            out_path=out_path,
+            model_id=session_preferred("lipsync"),
+        )
+        return str(asset.path)
+    except ImaginaError as e:
+        logger.error(f"Lipsync backend failed: {e}")
+    except Exception:
+        logger.exception("Lipsync crashed")
+    return None
 
 
 def final_generation(video_data, use_custom_audio, final_quality):
@@ -562,9 +667,9 @@ def final_generation(video_data, use_custom_audio, final_quality):
             if use_custom_audio:
                 audio_path = video_data.get("audio_path")
                 # Skip lip-sync when the video backend (e.g. VEO 3) already
-                # produced an audio-synced talking head. Saves a costly Sync.so
+                # produced an audio-synced talking head — saves a costly
                 # round-trip and avoids double-syncing.
-                native_audio = video_produces_audio(st.session_state.model_type)
+                native_audio = video_produces_audio()
                 if (
                     st.session_state.lipsync_mode
                     and audio_path
@@ -575,9 +680,7 @@ def final_generation(video_data, use_custom_audio, final_quality):
                         label="🎬 Starting lip sync (this may take a few minutes)...",
                         state="running",
                     )
-                    lipsynced_video_path = lipsync_generation_pipeline(
-                        video_path=str(merged_tmp), audio_path=audio_path
-                    )
+                    lipsynced_video_path = _run_lipsync(merged_tmp, audio_path)
                     if lipsynced_video_path and Path(lipsynced_video_path).exists():
                         ffmpeg.output(
                             ffmpeg.input(lipsynced_video_path),

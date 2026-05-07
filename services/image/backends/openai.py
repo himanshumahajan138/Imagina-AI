@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import streamlit as st
 from openai import OpenAI
 
 from core.errors import GenerationFailed
@@ -48,20 +47,23 @@ def openai_image_generator(item, dimension, out_path, previous_response_id=None)
         }
     ]
 
-    custom_images_list = (
-        item.get("reference_images", [])
-        if item.get("reference_images", [])
-        else st.session_state.get("custom_reference_images", [])
-    )
+    custom_images_list = item.get("reference_images") or []
     for img_file in custom_images_list:
-        base64_image = base64.b64encode(img_file.read()).decode("utf-8")
+        # Accept either an UploadedFile-like object or a path string.
+        if hasattr(img_file, "read"):
+            raw = img_file.read()
+            if hasattr(img_file, "seek"):
+                img_file.seek(0)
+        else:
+            with open(img_file, "rb") as f:
+                raw = f.read()
+        base64_image = base64.b64encode(raw).decode("utf-8")
         content.append(
             {
                 "type": "input_image",
                 "image_url": f"data:image/png;base64,{base64_image}",
             }
         )
-        img_file.seek(0)
 
     if item.get("old_image"):
         old_image_path = item["old_image"]
@@ -129,10 +131,19 @@ class OpenAIImageBackend:
             "old_image": kwargs.get("old_image"),
         }
         try:
-            path, _ = openai_image_generator(item, dimension, str(out_path))
+            path, response_id = openai_image_generator(
+                item,
+                dimension,
+                str(out_path),
+                previous_response_id=kwargs.get("previous_response_id"),
+            )
         except Exception as e:
             raise GenerationFailed(f"OpenAI image generation failed: {e}") from e
-        return MediaAsset(path=Path(path), kind="image")
+        return MediaAsset(
+            path=Path(path),
+            kind="image",
+            meta={"response_id": response_id},
+        )
 
 
 def build_backend(cfg: dict[str, Any]) -> OpenAIImageBackend:

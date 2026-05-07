@@ -1,4 +1,5 @@
 # ─── Core (always required) ────────────────────────────────────────
+honcho
 streamlit
 st_theme
 pandas
@@ -27,13 +28,18 @@ replicate
 kokoro==0.9.4
 fastvideo
 
-# ─── YouTube downloader + static file server ───────────────────────
+# ─── YouTube downloader + static file server + worker daemon ──────
 yt-dlp
 fastapi
 uvicorn
 pyngrok
+httpx
 
 # ─── Optional, install per-platform / per-modality ─────────────────
 # Apple Silicon LLM:        pip install mlx-lm
-# Wav2Lip (lipsync local):  pip install onnxruntime-coreml
+# Local image (SDXL-Turbo): pip install torch diffusers transformers accelerate safetensors
+# Local image (Z-Image-Turbo, default): same deps + diffusers must include ZImagePipeline
+#                                       (PRs #12703 + #12715, in mainline) → pip install -U diffusers
+# Local video (LTX-Video):  pip install torch diffusers transformers accelerate safetensors imageio imageio-ffmpeg
+# Wav2Lip (lipsync local):  pip install onnxruntime-coreml   (then download models/wav2lip.onnx)
 # ElevenLabs TTS (API):     pip install elevenlabs

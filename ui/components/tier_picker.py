@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from core.registry import available_models, label_for, list_models
+from core.registry import available_models, is_stub, label_for, list_models
 
 
 _MODALITIES: list[tuple[str, str]] = [
@@ -52,12 +52,18 @@ def render() -> None:
             except ValueError:
                 idx = 0
 
-            def _format(opt: str) -> str:
+            def _format(opt: str, _modality: str = modality) -> str:
                 if opt == _AUTO_LABEL:
                     return _AUTO_LABEL
-                base = label_for(modality, opt)
+                base = label_for(_modality, opt)
+                cfg = list_models(_modality).get(opt, {})
+                tags: list[str] = []
                 if opt not in available_ids:
-                    base += "  ·  ⚠ env not set"
+                    tags.append("⚠ env not set")
+                if is_stub(cfg):
+                    tags.append("🚧 stub")
+                if tags:
+                    base += "  ·  " + "  ·  ".join(tags)
                 return base
 
             choice = st.selectbox(

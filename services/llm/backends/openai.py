@@ -6,7 +6,6 @@ import os
 from typing import Any
 
 import json_repair
-import streamlit as st
 from openai import OpenAI
 
 from core.errors import GenerationFailed
@@ -37,31 +36,26 @@ def openai_script_generator(
 
     Public function preserved for back-compat with core/utils.py callers.
     """
-    with st.spinner("Generating cinematic script..."):
-        seconds = (
-            8
-            if model_type == "gemini"
-            else 12 if st.session_state.get("model_type") == "openai" else 10
-        )
+    seconds = 8 if model_type == "gemini" else 12 if model_type == "openai" else 10
 
-        prompt = SCRIPT_PROMPT.format(
-            theme=theme, language=language, duration=duration, seconds=seconds
+    prompt = SCRIPT_PROMPT.format(
+        theme=theme, language=language, duration=duration, seconds=seconds
+    )
+    try:
+        response = get_client().chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
         )
-        try:
-            response = get_client().chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-            )
-            raw_output = response.choices[0].message.content.strip()
-            structured = json_repair.loads(raw_output)
-            assert isinstance(structured, list), "Expected a list of dictionaries"
-            for entry in structured:
-                assert "script" in entry and "scene" in entry
-            return structured
-        except Exception as e:
-            logger.error("OpenAI script generation failed.")
-            raise e
+        raw_output = response.choices[0].message.content.strip()
+        structured = json_repair.loads(raw_output)
+        assert isinstance(structured, list), "Expected a list of dictionaries"
+        for entry in structured:
+            assert "script" in entry and "scene" in entry
+        return structured
+    except Exception as e:
+        logger.error("OpenAI script generation failed.")
+        raise e
 
 
 _row_to_block = row_to_block  # back-compat re-export

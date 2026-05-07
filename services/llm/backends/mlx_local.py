@@ -58,13 +58,17 @@ class MLXLocalLLMBackend:
             cost_gb=self.ram_gb,
         )
 
+    def warmup(self) -> None:
+        """Trigger weight load now (used by worker startup preload)."""
+        self._model_and_tokenizer()
+
     def generate_script(self, theme: str, duration: int, language: str, **kwargs: Any) -> Script:
         try:
             from mlx_lm import generate  # type: ignore[import-not-found]
         except ImportError as e:
             raise BackendUnavailable("mlx-lm not installed") from e
 
-        seconds = _seconds_for(kwargs.get("model_type", "openai"))
+        seconds = _seconds_for(kwargs.get("model_type", "local"))
         prompt = SCRIPT_PROMPT.format(
             theme=theme, language=language, duration=duration, seconds=seconds
         )
