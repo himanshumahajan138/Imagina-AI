@@ -31,12 +31,16 @@ from core.types import MediaAsset, Tier
 _DEFAULT_MODEL = "stabilityai/sdxl-turbo"
 
 
-def _load_pipeline(model_id: str):
+def _load_pipeline(model_id: str, vae_id: str | None = None):
     """One-time load of an SDXL diffusers pipeline.
 
     Cached for the lifetime of the process via `core.model_manager`,
     so `_pipe()` returns the same object across calls and Streamlit
     reruns talking to the worker.
+
+    `vae_id` is an optional override for the VAE — `madebyollin/sdxl-vae-fp16-fix`
+    is a popular swap that produces sharper output at fp16 inference
+    than the bundled SDXL VAE.
     """
     try:
         import torch  # type: ignore[import-not-found]
@@ -62,6 +66,15 @@ def _load_pipeline(model_id: str):
     if variant:
         kwargs["variant"] = variant
     pipe = AutoPipelineForText2Image.from_pretrained(model_id, **kwargs)
+
+    if vae_id:
+        try:
+            from diffusers import AutoencoderKL  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise BackendUnavailable(f"VAE swap requested but diffusers missing: {e}") from e
+        logger.info(f"[diffusers-local] swapping VAE → {vae_id}")
+        pipe.vae = AutoencoderKL.from_pretrained(vae_id, torch_dtype=dtype)
+
     pipe.to(device)
     pipe.set_progress_bar_config(disable=True)
     logger.info(f"[diffusers-local] loaded {model_id}")
@@ -87,11 +100,24 @@ class CoreMLImageBackend:
         self.model_id = cfg.get("hf_id", _DEFAULT_MODEL)
         self.ram_gb = float(cfg.get("ram_gb", 8))
         self.is_turbo = "turbo" in self.model_id.lower()
+        # Quality knobs — overridable from yaml. Defaults to 4 inference
+        # steps for Turbo (noticeably more detail than the official 1-step,
+        # ~25s/image on M2) and 25 for full SDXL. guidance_scale=0.0 keeps
+        # Turbo on its distillation rails — bumping it tends to oversharpen.
+        self.num_inference_steps = int(
+            cfg.get("num_inference_steps", 4 if self.is_turbo else 25)
+        )
+        self.guidance_scale = float(
+            cfg.get("guidance_scale", 0.0 if self.is_turbo else 7.5)
+        )
+        self.vae_id: str | None = cfg.get("vae_id")
 
     def _pipe(self):
         return get_manager().get(
-            f"diffusers::{self.model_id}",
-            loader=lambda: _load_pipeline(self.model_id),
+            # Cache key includes vae_id so swapping VAEs doesn't reuse a
+            # stale pipeline.
+            f"diffusers::{self.model_id}{'|vae='+self.vae_id if self.vae_id else ''}",
+            loader=lambda: _load_pipeline(self.model_id, self.vae_id),
             cost_gb=self.ram_gb,
         )
 
@@ -113,14 +139,18 @@ class CoreMLImageBackend:
         pipe = self._pipe()
         width, height = _parse_dimension(dimension)
 
-        logger.info(f"[diffusers-local] generating {width}x{height} | prompt={prompt[:60]!r}")
+        logger.info(
+            f"[diffusers-local] generating {width}x{height} | "
+            f"steps={self.num_inference_steps} guidance={self.guidance_scale} | "
+            f"prompt={prompt[:60]!r}"
+        )
         try:
             result = pipe(
                 prompt=prompt,
                 width=width,
                 height=height,
-                num_inference_steps=1 if self.is_turbo else 25,
-                guidance_scale=0.0 if self.is_turbo else 7.5,
+                num_inference_steps=self.num_inference_steps,
+                guidance_scale=self.guidance_scale,
             )
         except Exception as e:
             raise GenerationFailed(f"Diffusers local image generation failed: {e}") from e
@@ -134,7 +164,13 @@ class CoreMLImageBackend:
             kind="image",
             # str() the device — `torch.device` objects aren't JSON-serializable
             # and the worker round-trips this dict through /jobs/{id}.
-            meta={"model": self.model_id, "device": str(getattr(pipe, "device", "?"))},
+            meta={
+                "model": self.model_id,
+                "device": str(getattr(pipe, "device", "?")),
+                "steps": self.num_inference_steps,
+                "guidance_scale": self.guidance_scale,
+                "vae": self.vae_id or "default",
+            },
         )
 
 

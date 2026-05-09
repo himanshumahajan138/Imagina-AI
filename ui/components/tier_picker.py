@@ -34,7 +34,7 @@ def render() -> None:
     """Render the tier-picker expander inside the sidebar."""
     _ensure_session()
 
-    with st.expander("🎚️ Model Selection (advanced)", expanded=False):
+    with st.expander("🎚️ Model Selection", expanded=False):
         st.caption(
             "Override the auto-pick for any modality. Models without their "
             "API key / token configured are still shown but greyed by label."

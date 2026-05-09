@@ -398,6 +398,13 @@ def generate_audio_images(
     use_custom_audio: bool,
 ):
     """Generate audio (optional) + scene images, with progress UI."""
+    # Phase entry: free the LLM before we start loading TTS / image weights.
+    # The LLM was kept resident through the whole script-iteration phase
+    # so the user could regenerate or edit cheaply; now they've committed
+    # to moving forward, drop it. No-op if the LLM was never loaded
+    # (user uploaded a script directly). Best-effort.
+    worker.evict_models(modality="llm")
+
     st.session_state.video_data = {}
 
     progress_placeholder = st.empty()
@@ -482,11 +489,10 @@ def generate_audio_images(
     audio_placeholder.empty()
     scene_placeholder.empty()
 
-    # Phase boundary: image (and TTS) generation is done. Free SDXL +
-    # Kokoro on the worker so the upcoming video-gen phase has headroom.
-    # Best-effort — never blocks the pipeline if the worker rejects the hint.
-    worker.evict_models(modality="image")
-    worker.evict_models(modality="tts")
+    # No eviction here. SDXL/Z-Image and Kokoro stay resident while the
+    # user reviews + iterates on the storyboard (regen single scene,
+    # replace image, regen audio). Eviction happens at the entry to the
+    # next phase (generate_video) so iteration is cheap.
 
 
 # ─── Per-scene video generation ─────────────────────────────────────
@@ -536,6 +542,13 @@ def _generate_single_video(scene, ref_images, model_type, dimension):
 
 def generate_video(video_data, global_duration, global_dimension, model_type):
     """Generate per-scene videos with progress UI; populates session state."""
+    # Phase entry: free SDXL/Z-Image and Kokoro now that the user has
+    # committed to video gen. They were kept resident through storyboard
+    # iteration so per-scene image/audio regens were instant; eviction
+    # here makes room for the (much heavier) video model. Best-effort.
+    worker.evict_models(modality="image")
+    worker.evict_models(modality="tts")
+
     if "scene_videos" not in st.session_state:
         st.session_state.scene_videos = dict()
     if "scene_video_data" not in st.session_state:
@@ -603,11 +616,10 @@ def generate_video(video_data, global_duration, global_dimension, model_type):
     status_placeholder.empty()
     video_placeholder.empty()
 
-    # Phase boundary: video generation is done. Free any cached video
-    # weights before the lipsync/merge phase. (No local video backend
-    # is implemented today, so this is a no-op in practice — keeping the
-    # call for symmetry once one lands.)
-    worker.evict_models(modality="video")
+    # No eviction here. The video model stays resident while the user
+    # reviews + iterates on per-scene videos (regen single scene from the
+    # video gallery). Eviction happens at the entry to final_generation
+    # so per-scene regens are cheap.
     return True
 
 
@@ -634,6 +646,11 @@ def _run_lipsync(merged_video: Path, audio_path: str) -> str | None:
 
 def final_generation(video_data, use_custom_audio, final_quality):
     """Merge all per-scene videos into one final output, optionally lip-synced."""
+    # Phase entry: free local video weights before the merge + lipsync
+    # phase. Per-scene video regens kept the model warm; now they're done.
+    # No-op for API-tier video backends. Best-effort.
+    worker.evict_models(modality="video")
+
     with st.status("🔗 Merging scenes into one final video...") as status:
         try:
             merged_tmp = Path(tempfile.gettempdir()) / f"merged_{uuid.uuid4()}.mp4"

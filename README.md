@@ -1,5 +1,7 @@
 # Imagina AI
 
+![Imagina AI logo (light)](images/logo-white.png)
+
 Theme-to-cinematic-video generator. Type a theme, get back a fully scored short film: LLM-written script → cinematic stills → per-scene video → TTS → optional lip-sync → final ffmpeg merge with watermark and logo.
 
 Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS) ships with three interchangeable backends — local OSS, cloud-hosted OSS, and proprietary API — and the user picks the tier per-modality from the sidebar.
@@ -16,7 +18,7 @@ Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS
 ## Quickstart
 
 ```bash
-git clone <repo> imagina-ai && cd imagina-ai
+git clone https://github.com/himanshumahajan138/Imagina-AI.git && cd Imagina-AI
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # fill in at least one provider key (or use local backends only)
@@ -135,7 +137,7 @@ Procfile                   honcho process map (worker + web)
 | Modality | Local | Cloud OSS | API |
 | --- | --- | --- | --- |
 | **LLM (script)** | Qwen 2.5 7B Q4 (MLX) | DeepSeek V3 (Replicate) | Gemini, GPT |
-| **Image** | **Z-Image-Turbo (default)**, SDXL-Turbo (diffusers + MPS) | FLUX.1-dev (Replicate) | Imagen 4, gpt-image-1 |
+| **Image** | **SDXL-Turbo (default, ~7 GB)**, Z-Image-Turbo (Tongyi-MAI, ~33 GB on disk, top quality) | FLUX.1-dev (Replicate) | Imagen 4, gpt-image-1 |
 | **Video** | LTX-Video 2B (diffusers + MPS) | Wan 2.1, HunyuanVideo (Replicate) | VEO 3, Sora |
 | **Lip-sync** | Wav2Lip (ONNX + Core ML EP) | LatentSync (Replicate) | Sync.so |
 | **TTS** | Kokoro | F5-TTS (Replicate) | ElevenLabs |
@@ -239,8 +241,8 @@ lipsync + merge (Streamlit-side ffmpeg)
 | Backend | File | Optional deps | Notes |
 | --- | --- | --- | --- |
 | `mlx_local` (LLM) | `services/llm/backends/mlx_local.py` | `pip install mlx-lm` | Apple Silicon only; Qwen 2.5 7B Q4 |
-| `zimage_local` (image, default) | `services/image/backends/zimage_local.py` | `pip install -U torch diffusers transformers accelerate safetensors` | bf16 on MPS/CUDA, 8-step Z-Image-Turbo, 6B params, fits 16 GB |
-| `coreml_local` (image, alternative) | `services/image/backends/coreml_local.py` | same | SDXL-Turbo via diffusers; despite the filename it's diffusers + MPS, not Apple Core ML |
+| `coreml_local` (image, default) | `services/image/backends/coreml_local.py` | `pip install -U torch diffusers transformers accelerate safetensors` | SDXL-Turbo via diffusers + MPS; defaults to 4 inference steps for better quality (~25s/image vs ~8s at 1-step). Tunables: `num_inference_steps`, `guidance_scale`, optional `vae_id` swap (e.g. `madebyollin/sdxl-vae-fp16-fix`). Despite the filename it's diffusers, not Apple Core ML |
+| `zimage_local` (image, alternative) | `services/image/backends/zimage_local.py` | same | Tongyi-MAI Z-Image-Turbo. 6B param S3-DiT, 8-step distilled, bf16. Best quality but ~33 GB on disk |
 | `ltx_local` (video) | `services/video/backends/ltx_local.py` | + `imageio imageio-ffmpeg` | LTX-Video 2B image-to-video, ~3-6 min/clip on M2 |
 | `kokoro_local` (TTS) | `services/tts/backends/kokoro_local.py` | bundled in core deps | American/British/multilingual voices |
 | `wav2lip_local` (lipsync) | `services/lipsync/backends/wav2lip_local.py` | `pip install onnxruntime-coreml` + `models/wav2lip.onnx` | OpenCV face detect + librosa mel + ONNX inference + ffmpeg mux |

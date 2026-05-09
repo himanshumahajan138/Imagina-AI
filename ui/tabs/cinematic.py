@@ -60,27 +60,25 @@ def render() -> None:
             custom_image=None,
         )
         st.session_state.script_df = df
-        # Phase boundary: free MLX LLM (~6 GB) before the user kicks off
-        # the audio + image phase. Best-effort, never raises.
-        worker.evict_models(modality="llm")
+        # No eviction here. The LLM stays resident through script
+        # iteration (edits, regens, multiple uploads) — eviction happens
+        # at the entry to the next phase (generate_audio_images), so
+        # repeated script work doesn't pay reload cost.
 
     _task_handler("generate_script", _generate_script_task)
 
-    _task_handler(
-        "load_script",
-        lambda: st.session_state.update(
-            {
-                "script_df": pd.DataFrame(
-                    parse_script_scene_content(st.session_state.uploaded_content)
-                ).assign(
-                    speed=st.session_state.selected_speed,
-                    speaker=st.session_state.selected_speaker,
-                    custom_image=None,
-                ),
-                "uploaded_content": None,
-            }
-        ),
-    )
+    def _load_script_task() -> None:
+        st.session_state.script_df = pd.DataFrame(
+            parse_script_scene_content(st.session_state.uploaded_content)
+        ).assign(
+            speed=st.session_state.selected_speed,
+            speaker=st.session_state.selected_speaker,
+            custom_image=None,
+        )
+        st.session_state.uploaded_content = None
+        # No eviction here either — same reasoning as _generate_script_task.
+
+    _task_handler("load_script", _load_script_task)
 
     if "script_df" not in st.session_state:
         st.session_state.script_df = pd.DataFrame(
