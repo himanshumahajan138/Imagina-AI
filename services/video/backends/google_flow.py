@@ -46,7 +46,7 @@ def gemini_video_generation_pipeline(
         aspect_ratio=ASPECT_RATIOS[dimension],
     )
     operation = get_client().models.generate_videos(
-        model="veo-3.0-generate-preview",
+        model="veo-3.1-generate-preview",
         prompt=prompt,
         image=image,
         config=config,

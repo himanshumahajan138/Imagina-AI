@@ -80,7 +80,7 @@ def openai_image_generator(item, dimension, out_path, previous_response_id=None)
             logger.warning(f"Old image not found at: {old_image_path}")
 
     response = get_client().responses.create(
-        model="gpt-4o-mini",
+        model="gpt-image-2",
         input=[{"role": "user", "content": content}],
         tools=[
             {

@@ -29,7 +29,7 @@ def openai_script_generator(
     theme: str,
     language: str,
     duration: int,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5.4-mini",
     model_type: str = "openai",
 ) -> list[dict]:
     """Generate a list of cinematic script beats via OpenAI.
@@ -74,7 +74,7 @@ class OpenAILLMBackend:
                 theme=theme,
                 language=language,
                 duration=duration,
-                model=self.cfg.get("model", "gpt-4o-mini"),
+                model=self.cfg.get("model", "gpt-5.4-mini"),
                 model_type=kwargs.get("model_type", "openai"),
             )
         except Exception as e:

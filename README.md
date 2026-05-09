@@ -6,6 +6,12 @@ Theme-to-cinematic-video generator. Type a theme, get back a fully scored short 
 
 Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS) ships with three interchangeable backends — local OSS, cloud-hosted OSS, and proprietary API — and the user picks the tier per-modality from the sidebar.
 
+
+## Demo
+
+https://github.com/user-attachments/assets/afc4b16e-e559-4877-8b13-8a750718fe36
+
+
 ## Highlights
 
 - **Three tiers per modality.** Local (M2-friendly) → Cloud OSS (Replicate) → API (OpenAI / Gemini / Sync.so / ElevenLabs). Switch any one without touching code; the registry handles fallback when env vars aren't set.
@@ -14,6 +20,7 @@ Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS
 - **Phase-aware memory management.** The worker preloads the auto-picked LLM at startup; pipelines call `worker.evict_models(modality=...)` at phase boundaries so MLX + diffusers don't fight for the same 16 GB. Eviction does the GPU cache drain (MPS / CUDA / MLX) so memory actually returns to the OS.
 - **Model-aware UI.** Duration slider min/max/step is read from the active video backend. Dimension dropdown is the intersection of supported dimensions across the active image + video backends. TTS speed is pre-estimated from script length so the synthesised audio lands close to the scene duration on the first call.
 - **Five built-in tools.** Cinematic Generator (the main flow), plus Merge, Watermark Remove, Media Trim, YouTube Download tabs.
+
 
 ## Quickstart
 
@@ -274,4 +281,5 @@ Each scene's TTS audio is guaranteed to land at exactly the active video backend
 Net result: the merged audio track lines up frame-perfectly with the video track, no drift across scenes.
 
 ## License
+
 [Apache 2.0 LICENSE](LICENSE)

@@ -21,7 +21,7 @@ llm:
       backend: replicate
       replicate_id: deepseek-ai/deepseek-v3
       requires_env: REPLICATE_API_TOKEN
-    gemini-3.1-flash:
+    gemini-3.1-flash-lite:
       tier: api
       backend: gemini
       requires_env: GOOGLE_GENAI_API_KEY
@@ -68,11 +68,19 @@ image:
       backend: replicate
       replicate_id: black-forest-labs/flux-dev
       requires_env: REPLICATE_API_TOKEN
-    imagen-3:
+    # Free-tier Gemini multimodal image gen (Nano Banana). Listed before
+    # imagen-4 so auto-pick prefers the free path when GOOGLE_GENAI_API_KEY
+    # is set.
+    gemini-2.5-flash-image:
+      tier: api
+      backend: gemini_flash_image
+      model: gemini-2.5-flash-image
+      requires_env: GOOGLE_GENAI_API_KEY
+    imagen-4:
       tier: api
       backend: gemini
       requires_env: GOOGLE_GENAI_API_KEY
-    gpt-image-1:
+    gpt-image-2:
       tier: api
       backend: openai
       requires_env: OPENAI_API_KEY
@@ -104,13 +112,13 @@ video:
       replicate_id: tencent/hunyuan-video
       requires_env: REPLICATE_API_TOKEN
       scene_duration: 10
-    veo-3:
+    veo-3.1:
       tier: api
       backend: google_flow
       requires_env: GOOGLE_GENAI_API_KEY
       scene_duration: 8
       produces_audio: true
-    sora:
+    sora-2:
       tier: api
       backend: openai
       requires_env: OPENAI_API_KEY

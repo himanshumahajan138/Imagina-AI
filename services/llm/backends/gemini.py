@@ -36,7 +36,7 @@ class GeminiLLMBackend:
 
     def __init__(self, cfg: dict[str, Any]) -> None:
         self.cfg = cfg
-        self.model = cfg.get("model", "gemini-2.5-flash")
+        self.model = cfg.get("model", "gemini-3.1-flash-lite")
 
     def generate_script(
         self, theme: str, duration: int, language: str, **kwargs: Any
