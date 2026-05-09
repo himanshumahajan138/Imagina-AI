@@ -274,5 +274,4 @@ Each scene's TTS audio is guaranteed to land at exactly the active video backend
 Net result: the merged audio track lines up frame-perfectly with the video track, no drift across scenes.
 
 ## License
-
-TBD.
+[Apache 2.0 LICENSE](LICENSE)
