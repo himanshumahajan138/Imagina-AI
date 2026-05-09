@@ -48,7 +48,7 @@ def gemini_image_generator(item, dimension, out_path):
 
     def send_request():
         return get_client().models.generate_images(
-            model="imagen-4.0-generate-preview-06-06",
+            model="imagen-4.0-fast-generate-001",
             prompt=prompt,
             config=genai_types.GenerateImagesConfig(
                 output_mime_type="image/png",

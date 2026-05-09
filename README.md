@@ -15,6 +15,12 @@ Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS
 - **Model-aware UI.** Duration slider min/max/step is read from the active video backend. Dimension dropdown is the intersection of supported dimensions across the active image + video backends. TTS speed is pre-estimated from script length so the synthesised audio lands close to the scene duration on the first call.
 - **Five built-in tools.** Cinematic Generator (the main flow), plus Merge, Watermark Remove, Media Trim, YouTube Download tabs.
 
+## Demo
+
+<video controls >
+  <source src="images/demo.mp4" type="video/mp4">
+</video>
+
 ## Quickstart
 
 ```bash
@@ -274,4 +280,5 @@ Each scene's TTS audio is guaranteed to land at exactly the active video backend
 Net result: the merged audio track lines up frame-perfectly with the video track, no drift across scenes.
 
 ## License
+
 [Apache 2.0 LICENSE](LICENSE)
