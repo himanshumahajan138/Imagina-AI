@@ -6,6 +6,12 @@ Theme-to-cinematic-video generator. Type a theme, get back a fully scored short 
 
 Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS) ships with three interchangeable backends — local OSS, cloud-hosted OSS, and proprietary API — and the user picks the tier per-modality from the sidebar.
 
+
+## Demo
+
+https://github.com/user-attachments/assets/afc4b16e-e559-4877-8b13-8a750718fe36
+
+
 ## Highlights
 
 - **Three tiers per modality.** Local (M2-friendly) → Cloud OSS (Replicate) → API (OpenAI / Gemini / Sync.so / ElevenLabs). Switch any one without touching code; the registry handles fallback when env vars aren't set.
@@ -15,11 +21,6 @@ Provider-agnostic by design. Every modality (script, image, video, lip-sync, TTS
 - **Model-aware UI.** Duration slider min/max/step is read from the active video backend. Dimension dropdown is the intersection of supported dimensions across the active image + video backends. TTS speed is pre-estimated from script length so the synthesised audio lands close to the scene duration on the first call.
 - **Five built-in tools.** Cinematic Generator (the main flow), plus Merge, Watermark Remove, Media Trim, YouTube Download tabs.
 
-## Demo
-
-<video controls >
-  <source src="images/demo.mp4" type="video/mp4">
-</video>
 
 ## Quickstart
 
