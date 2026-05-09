@@ -1,21 +1,45 @@
-openai
-dotenv
-json_repair
+# ─── Core (always required) ────────────────────────────────────────
+honcho
 streamlit
+st_theme
+pandas
+numpy
+python-dotenv
+pyyaml
+requests
+pillow
 ffmpeg-python
-google-genai
-pydub
-syncsdk
 opencv-python
+soundfile
+librosa
+scipy
+pydub
+json_repair
+
+# ─── Tier 3 (API) — install when using these providers ─────────────
+openai
+google-genai
+syncsdk
+
+# ─── Tier 2 (Cloud OSS) — Replicate-hosted backends ────────────────
+replicate
+
+# ─── Tier 1 (Local OSS) ────────────────────────────────────────────
+kokoro==0.9.4
+fastvideo
+
+# ─── YouTube downloader + static file server + worker daemon ──────
+yt-dlp
 fastapi
 uvicorn
-youtube-dl
-pillow
-requests
-st_theme
 pyngrok
-numpy
-pandas
-fastvideo
-kokoro==0.9.4
-soundfile
+httpx
+
+# ─── Optional, install per-platform / per-modality ─────────────────
+# Apple Silicon LLM:        pip install mlx-lm
+# Local image (SDXL-Turbo): pip install torch diffusers transformers accelerate safetensors
+# Local image (Z-Image-Turbo, default): same deps + diffusers must include ZImagePipeline
+#                                       (PRs #12703 + #12715, in mainline) → pip install -U diffusers
+# Local video (LTX-Video):  pip install torch diffusers transformers accelerate safetensors imageio imageio-ffmpeg
+# Wav2Lip (lipsync local):  pip install onnxruntime-coreml   (then download models/wav2lip.onnx)
+# ElevenLabs TTS (API):     pip install elevenlabs
