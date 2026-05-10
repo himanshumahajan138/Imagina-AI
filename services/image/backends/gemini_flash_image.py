@@ -69,8 +69,6 @@ class GeminiFlashImageBackend:
         **kwargs: Any,
     ) -> MediaAsset:
         aspect = ASPECT_RATIOS.get(dimension, "1:1")
-        for x in range(10):
-            print(aspect)
         custom = kwargs.get("reference_text")
         custom_block = (
             ""
@@ -102,6 +100,7 @@ class GeminiFlashImageBackend:
                 contents=contents,
                 config=genai_types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
+                    image_config=genai_types.ImageConfig(aspect_ratio=aspect)
                 ),
             )
         except Exception as e:
