@@ -22,6 +22,8 @@ def generate_script(req: ScriptRequest) -> ScriptResponse:
         kwargs = {}
         if req.model_type:
             kwargs["model_type"] = req.model_type
+        if req.seconds:
+            kwargs["seconds"] = req.seconds
         script = svc._backend.generate_script(
             theme=req.theme,
             duration=req.duration,

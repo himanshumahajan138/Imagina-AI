@@ -29,15 +29,14 @@ def openai_script_generator(
     theme: str,
     language: str,
     duration: int,
+    seconds: int = 10,
     model: str = "gpt-5.4-mini",
-    model_type: str = "openai",
+    model_type: str = "openai",  # accepted for back-compat; no longer drives `seconds`
 ) -> list[dict]:
     """Generate a list of cinematic script beats via OpenAI.
 
     Public function preserved for back-compat with core/utils.py callers.
     """
-    seconds = 8 if model_type == "gemini" else 12 if model_type == "openai" else 10
-
     prompt = SCRIPT_PROMPT.format(
         theme=theme, language=language, duration=duration, seconds=seconds
     )
@@ -74,6 +73,7 @@ class OpenAILLMBackend:
                 theme=theme,
                 language=language,
                 duration=duration,
+                seconds=int(kwargs.get("seconds") or 10),
                 model=self.cfg.get("model", "gpt-5.4-mini"),
                 model_type=kwargs.get("model_type", "openai"),
             )

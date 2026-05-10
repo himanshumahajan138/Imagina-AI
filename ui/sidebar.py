@@ -48,14 +48,18 @@ def render(logo_path: str) -> None:
         # callers still reading it (image refinement default, watermark
         # framing helpers) keep working until they're fully migrated.
         video_model = st.session_state.preferred_models.get("video")
-        if video_model == "veo-3":
+        if video_model == "veo-3.1":
             st.session_state.model_type = "gemini"
-        elif video_model == "sora":
+        elif video_model == "sora-2":
             st.session_state.model_type = "openai"
         else:
             st.session_state.model_type = "local"
 
         constraints = video_constraints()
+        # Per-beat target the video backend can render in one clip. The LLM
+        # uses this directly when planning script beats — keeps the prompt
+        # in lockstep with whatever video model is actually selected.
+        st.session_state.scene_seconds = int(constraints["scene"])
 
         with st.expander("🎤 Voice & Video Settings", expanded=True):
             st.session_state.language = st.selectbox(

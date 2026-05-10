@@ -8,9 +8,10 @@ service-level facade (`services/<modality>/service.py`).
 from __future__ import annotations
 
 from pathlib import Path
+import pandas as pd
 from typing import Any, Protocol, runtime_checkable
 
-from core.types import MediaAsset, Script, Tier
+from core.types import MediaAsset, Tier
 
 
 @runtime_checkable
@@ -24,7 +25,7 @@ class LLMBackend(Protocol):
         duration: int,
         language: str,
         **kwargs: Any,
-    ) -> Script: ...
+    ) -> pd.DataFrame: ...
 
 
 @runtime_checkable

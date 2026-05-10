@@ -30,6 +30,7 @@ class ScriptRequest(BaseModel):
     theme: str
     duration: int
     language: str
+    seconds: int | None = None  # per-beat length (matches active video model's scene_duration)
     model_id: str | None = None
     model_type: str | None = None  # legacy hint forwarded to backends
 

@@ -24,10 +24,6 @@ from services.llm.parser import row_to_block
 from services.llm.prompts import SCRIPT_PROMPT
 
 
-def _seconds_for(model_type: str) -> int:
-    return 8 if model_type == "gemini" else 12 if model_type == "openai" else 10
-
-
 def _load_mlx(hf_id: str) -> tuple[Any, Any]:
     try:
         from mlx_lm import load  # type: ignore[import-not-found]
@@ -68,7 +64,7 @@ class MLXLocalLLMBackend:
         except ImportError as e:
             raise BackendUnavailable("mlx-lm not installed") from e
 
-        seconds = _seconds_for(kwargs.get("model_type", "local"))
+        seconds = int(kwargs.get("seconds") or 10)
         prompt = SCRIPT_PROMPT.format(
             theme=theme, language=language, duration=duration, seconds=seconds
         )

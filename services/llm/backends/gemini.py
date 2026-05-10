@@ -26,10 +26,6 @@ def get_client() -> genai.Client:
     return _client
 
 
-def _seconds_for(model_type: str) -> int:
-    return 8 if model_type == "gemini" else 12 if model_type == "openai" else 10
-
-
 class GeminiLLMBackend:
     name = "gemini"
     tier = Tier.API
@@ -41,7 +37,7 @@ class GeminiLLMBackend:
     def generate_script(
         self, theme: str, duration: int, language: str, **kwargs: Any
     ) -> Script:
-        seconds = _seconds_for(kwargs.get("model_type", "gemini"))
+        seconds = int(kwargs.get("seconds") or 10)
         prompt = SCRIPT_PROMPT.format(
             theme=theme, language=language, duration=duration, seconds=seconds
         )

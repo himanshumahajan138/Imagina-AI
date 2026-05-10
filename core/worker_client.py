@@ -141,6 +141,7 @@ class WorkerClient:
         theme: str,
         duration: int,
         language: str,
+        seconds: int | None = None,
         model_id: str | None = None,
         model_type: str | None = None,
     ) -> pd.DataFrame:
@@ -150,6 +151,7 @@ class WorkerClient:
             theme=theme,
             duration=duration,
             language=language,
+            seconds=seconds,
             model_id=model_id,
             model_type=model_type,
         )
@@ -160,6 +162,7 @@ class WorkerClient:
         theme: str,
         duration: int,
         language: str,
+        seconds: int | None = None,
         model_id: str | None = None,
         model_type: str | None = None,
     ) -> Script:
@@ -169,6 +172,7 @@ class WorkerClient:
             theme=theme,
             duration=duration,
             language=language,
+            seconds=seconds,
             model_id=model_id,
             model_type=model_type,
         )

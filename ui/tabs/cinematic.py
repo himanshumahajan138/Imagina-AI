@@ -52,6 +52,7 @@ def render() -> None:
             theme=st.session_state.theme,
             duration=st.session_state.duration,
             language=st.session_state.language,
+            seconds=st.session_state.scene_seconds,
             model_id=session_preferred("llm"),
             model_type=st.session_state.model_type,
         ).assign(
