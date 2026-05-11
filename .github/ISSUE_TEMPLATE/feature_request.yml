@@ -1,0 +1,110 @@
+name: ✨ Feature request
+description: Suggest a new capability, backend, or UX improvement.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! 🎬
+
+        Before submitting, please:
+        - Search [existing issues](https://github.com/himanshumahajan138/Imagina-AI/issues?q=is%3Aissue) and [discussions](https://github.com/himanshumahajan138/Imagina-AI/discussions) for similar requests.
+        - For broad questions ("what should we do about X?"), please start a Discussion instead.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and discussions and didn't find a duplicate.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user-facing outcome first — what can't you do today, or what's painful?
+      placeholder: "e.g. I can't use my own fine-tuned SDXL checkpoint for the image phase without editing source."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should happen? Be as concrete as you can.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area of the project
+      multiple: true
+      options:
+        - new backend (Local)
+        - new backend (Cloud OSS / Replicate)
+        - new backend (API)
+        - script / LLM phase
+        - image phase
+        - video phase
+        - lipsync phase
+        - tts phase
+        - merge / ffmpeg
+        - UI (Streamlit sidebar / tabs)
+        - worker (FastAPI, memory management)
+        - tools (Merge / Watermark / Trim / YouTube)
+        - docs
+        - dev tooling / CI
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: backend_details
+    attributes:
+      label: Backend details (if requesting a new backend)
+      description: |
+        If you're proposing a new backend, please include:
+        - Tier: Local / Cloud OSS / API
+        - Model name and provider
+        - Required env vars (API keys, endpoints)
+        - Supported dimensions / durations / params
+        - Link to the model card or API docs
+      placeholder: |
+        Tier: API
+        Model: ...
+        Provider: ...
+        Env: ...
+        Docs: ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you've tried or thought about, and why they fall short.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you be willing to contribute this?
+      description: Totally fine to say no — just helps with planning.
+      options:
+        - "Yes, I'd like to send a PR"
+        - "Maybe, with some guidance"
+        - "No, just suggesting"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, links, references — anything else that helps.
+    validations:
+      required: false

@@ -1,0 +1,153 @@
+name: 🐛 Bug report
+description: Something isn't working — broken pipeline, wrong output, crash, OOM, etc.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! 🙏
+
+        Before submitting, please:
+        - Make sure you're on the latest `main` (`git pull` + `pip install -r requirements.txt`).
+        - Search [existing issues](https://github.com/himanshumahajan138/Imagina-AI/issues?q=is%3Aissue) to avoid duplicates.
+        - **For security issues, do NOT file here** — see [SECURITY.md](https://github.com/himanshumahajan138/Imagina-AI/blob/main/SECURITY.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I'm running the latest commit on `main`.
+          required: true
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+      placeholder: "e.g. Video generation fails with OOM when using local LTX backend at 1024×576."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps. Include the theme/prompt if relevant.
+      placeholder: |
+        1. Start worker + UI with `honcho start`
+        2. Open <http://localhost:8004>
+        3. Set tier picker → ...
+        4. Enter theme "..."
+        5. Click Generate
+        6. See error / wrong output at phase ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened? Include error messages verbatim.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: modality
+    attributes:
+      label: Affected modality
+      description: Which phase of the pipeline is broken?
+      multiple: true
+      options:
+        - script (LLM)
+        - image
+        - video
+        - lipsync
+        - tts
+        - merge / ffmpeg
+        - UI (Streamlit)
+        - worker / FastAPI
+        - tools (Merge / Watermark / Trim / YouTube)
+        - other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Backend tier in use
+      description: Which tier was selected (sidebar tier picker)?
+      options:
+        - Auto
+        - Local (OSS, on-device)
+        - Cloud OSS (Replicate)
+        - API (OpenAI / Gemini / Sync.so / ElevenLabs / …)
+        - Mix (specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: backend_name
+    attributes:
+      label: Specific backend / model
+      description: Exact model name from `configs/models.yaml` (e.g. `mlx-qwen-2.5-7b-q4`, `ltx-video`, `gemini-2.5-flash-image`).
+      placeholder: e.g. ltx-video
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Run these and paste the output.
+      value: |
+        - OS:
+        - Python:        # python --version
+        - Imagina AI commit:  # git rev-parse --short HEAD
+        - ffmpeg:        # ffmpeg -version | head -n1
+        - GPU / accelerator:  # e.g. Apple M2 16GB, NVIDIA RTX 3090, CPU only
+        - Install mode:  # honcho / two-terminal / docker / other
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste output from `logs/` and/or the worker console.
+        **Redact API keys, tokens, and personal data before pasting.**
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / sample output
+      description: Drag-and-drop images or short clips if the bug is visible in the UI or output media.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that might help — recent changes, workarounds you tried, related issues.
+    validations:
+      required: false
